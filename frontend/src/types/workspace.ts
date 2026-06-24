@@ -1,4 +1,5 @@
 export type GeometryType = 'Point' | 'LineString' | 'Polygon' | 'Mixed';
+export type BasemapType = 'xyz' | 'wms';
 
 export interface WorkspaceLayer {
   id: string;
@@ -9,9 +10,65 @@ export interface WorkspaceLayer {
   locked: boolean;
   opacity: number;
   color: string;
+  performance: LayerPerformanceState;
 }
 
 export interface ToolAction {
   key: string;
   label: string;
+}
+
+export interface LayerPerformanceState {
+  featureCount: number;
+  largeLayer: boolean;
+  indexed: boolean;
+  recommendedMode: 'bbox' | 'tile' | 'table';
+  warning?: string;
+}
+
+export interface BasemapProvider {
+  id: string;
+  type: BasemapType;
+  name: string;
+  urlTemplate: string;
+  apiKey: string;
+  subdomains: string[];
+  enabled: boolean;
+  apiKeyConfigured: boolean;
+}
+
+export interface PanelLayoutSettings {
+  layers: boolean;
+  basemaps: boolean;
+  jobs: boolean;
+  properties: boolean;
+  fields: boolean;
+  performance: boolean;
+}
+
+export interface FeatureQueryMeta {
+  limit: number;
+  returned: number;
+  truncated: boolean;
+  warning?: string;
+  bbox?: [number, number, number, number];
+  simplify?: number;
+  cacheHit: boolean;
+  strategy: string;
+}
+
+export interface MapRuntimeState {
+  coordinate: [number, number];
+  zoom: number;
+  scale: string;
+  crs: string;
+  selectedBasemapId: string;
+}
+
+export interface JobState {
+  id: string;
+  jobType: string;
+  status: 'queued' | 'running' | 'done' | 'failed' | 'unknown';
+  progress: number;
+  message?: string;
 }

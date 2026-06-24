@@ -1,7 +1,16 @@
 from fastapi import APIRouter
 
-from app.api.v1.routes import layers, projects
+from app.features.basemaps.router import router as basemaps_router
+from app.features.jobs.router import router as jobs_router
+from app.features.layers.router import router as layers_router
+from app.features.map_features.router import router as map_features_router
+from app.features.projects.router import router as projects_router
+from app.features.settings.router import router as settings_router
 
 api_router = APIRouter()
-api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
-api_router.include_router(layers.router, prefix="/layers", tags=["layers"])
+api_router.include_router(projects_router, prefix="/projects", tags=["projects"])
+api_router.include_router(layers_router, prefix="/layers", tags=["layers"])
+api_router.include_router(map_features_router, tags=["map-features"])
+api_router.include_router(basemaps_router, prefix="/basemaps", tags=["basemaps"])
+api_router.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
+api_router.include_router(settings_router, prefix="/settings", tags=["settings"])

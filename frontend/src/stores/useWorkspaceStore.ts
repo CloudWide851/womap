@@ -22,6 +22,12 @@ const initialLayers: WorkspaceLayer[] = [
     locked: false,
     opacity: 0.78,
     color: '#256f5d',
+    performance: {
+      featureCount: 12,
+      largeLayer: false,
+      indexed: true,
+      recommendedMode: 'bbox',
+    },
   },
   {
     id: 'survey-points',
@@ -32,6 +38,12 @@ const initialLayers: WorkspaceLayer[] = [
     locked: false,
     opacity: 1,
     color: '#c15f2e',
+    performance: {
+      featureCount: 86,
+      largeLayer: false,
+      indexed: true,
+      recommendedMode: 'bbox',
+    },
   },
   {
     id: 'planning-overlay',
@@ -42,6 +54,13 @@ const initialLayers: WorkspaceLayer[] = [
     locked: true,
     opacity: 0.46,
     color: '#3f62b5',
+    performance: {
+      featureCount: 68000,
+      largeLayer: true,
+      indexed: true,
+      recommendedMode: 'tile',
+      warning: '超大图层默认按视口加载，避免一次性拉取全部几何。',
+    },
   },
 ];
 

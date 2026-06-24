@@ -1,5 +1,6 @@
 import { Button, Slider, Switch, Tag } from 'antd';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
 
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 
@@ -10,8 +11,15 @@ export function LayerPanel() {
   const toggleLayer = useWorkspaceStore((state) => state.toggleLayer);
   const setLayerOpacity = useWorkspaceStore((state) => state.setLayerOpacity);
 
+  const handleLayerKeyDown = (event: KeyboardEvent<HTMLDivElement>, layerId: string) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectLayer(layerId);
+    }
+  };
+
   return (
-    <aside className="panel layer-panel">
+    <section className="panel-section layer-panel-section">
       <div className="panel-heading">
         <div>
           <p>图层</p>
@@ -22,11 +30,13 @@ export function LayerPanel() {
 
       <div className="layer-list">
         {layers.map((layer) => (
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             key={layer.id}
             className={`layer-item ${selectedLayerId === layer.id ? 'is-selected' : ''}`}
             onClick={() => selectLayer(layer.id)}
+            onKeyDown={(event) => handleLayerKeyDown(event, layer.id)}
           >
             <span className="layer-swatch" style={{ background: layer.color }} />
             <span className="layer-main">
@@ -60,9 +70,9 @@ export function LayerPanel() {
                 onChange={(value) => setLayerOpacity(layer.id, value)}
               />
             </span>
-          </button>
+          </div>
         ))}
       </div>
-    </aside>
+    </section>
   );
 }

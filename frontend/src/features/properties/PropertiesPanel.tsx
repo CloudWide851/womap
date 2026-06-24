@@ -8,7 +8,7 @@ export function PropertiesPanel() {
   const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
 
   return (
-    <aside className="panel properties-panel">
+    <section className="panel-section properties-panel-section">
       <div className="panel-heading">
         <div>
           <p>属性</p>
@@ -35,6 +35,6 @@ export function PropertiesPanel() {
       ) : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未选择图层" />
       )}
-    </aside>
+    </section>
   );
 }

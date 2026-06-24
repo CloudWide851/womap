@@ -1,0 +1,82 @@
+app:
+  name: WOMAP
+  version: 0.1.0
+  environment: local
+  debug: true
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  cors_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+
+database:
+  driver: postgresql+asyncpg
+  host: localhost
+  port: 5432
+  name: womap
+  username: womap
+  password: "replace-with-local-password"
+  pool:
+    min_size: 2
+    max_size: 10
+    timeout_seconds: 30
+
+test_database:
+  driver: sqlite+aiosqlite
+  path: ./womap_test.db
+
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+  username: null
+  password: null
+  socket_timeout_seconds: 5
+
+maps:
+  providers:
+    - id: tianditu-vector
+      type: xyz
+      name: 天地图矢量
+      url_template: https://t{s}.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk={api_key}
+      api_key: ""
+      subdomains: ["0", "1", "2", "3", "4", "5", "6", "7"]
+      enabled: false
+    - id: amap-vector
+      type: xyz
+      name: 高德矢量
+      url_template: https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}
+      api_key: ""
+      subdomains: ["1", "2", "3", "4"]
+      enabled: true
+    - id: tencent-vector
+      type: xyz
+      name: 腾讯矢量
+      url_template: https://rt{s}.map.gtimg.com/tile?z={z}&x={x}&y={y}&type=vector&styleid=1
+      api_key: ""
+      subdomains: ["0", "1", "2", "3"]
+      enabled: true
+    - id: baidu-vector
+      type: xyz
+      name: 百度矢量
+      url_template: https://online{s}.map.bdimg.com/tile/?qt=tile&x={x}&y={y}&z={z}&styles=pl
+      api_key: ""
+      subdomains: ["0", "1", "2", "3"]
+      enabled: false
+    - id: custom-xyz
+      type: xyz
+      name: 自定义 XYZ
+      url_template: ""
+      api_key: ""
+      subdomains: []
+      enabled: false
+
+performance:
+  max_features_per_request: 5000
+  default_bbox_limit: 1000
+  simplify_tolerance: 0.00001
+  cache_ttl_seconds: 120
+  large_layer_feature_threshold: 50000
+  tile_feature_threshold: 10000

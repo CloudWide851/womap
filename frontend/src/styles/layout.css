@@ -70,6 +70,27 @@
   background: rgba(251, 252, 248, 0.94);
 }
 
+.panel-section {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e2e7dd;
+}
+
+.panel-section:last-child {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #26312f;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .layer-panel {
   border-right: 1px solid #d9ded4;
 }
@@ -84,6 +105,11 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.layer-panel-section .panel-heading,
+.properties-panel-section .panel-heading {
+  margin-bottom: 12px;
 }
 
 .panel-heading p,
@@ -205,6 +231,91 @@
   color: #26312f;
   background: rgba(251, 252, 248, 0.93);
   font-size: 0.78rem;
+}
+
+.basemap-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.basemap-list .ant-radio-button-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: auto;
+  padding: 8px 10px;
+  border-inline-start-width: 1px;
+  border-radius: 6px;
+}
+
+.basemap-list .ant-radio-button-wrapper::before {
+  display: none;
+}
+
+.job-list {
+  display: grid;
+  gap: 10px;
+}
+
+.job-item {
+  padding: 10px;
+  border: 1px solid #d8dfd5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.job-item > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.job-item strong {
+  font-size: 0.82rem;
+}
+
+.job-item p {
+  margin: 6px 0 0;
+  color: #68746e;
+  font-size: 0.74rem;
+}
+
+.performance-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.performance-grid .ant-statistic {
+  padding: 10px;
+  border: 1px solid #d8dfd5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.performance-grid .ant-statistic-title {
+  margin-bottom: 2px;
+  font-size: 0.72rem;
+}
+
+.performance-grid .ant-statistic-content {
+  font-size: 1rem;
+}
+
+.panel-toggle-list {
+  display: grid;
+  gap: 9px;
+}
+
+.panel-toggle-list label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #46534d;
+  font-size: 0.8rem;
 }
 
 .property-table {

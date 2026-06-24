@@ -2,20 +2,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
-from app.core.config import get_settings
+from app.shared.config import get_settings
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title=settings.app_name,
-        version=settings.app_version,
+        title=settings.app.name,
+        version=settings.app.version,
         description="WOMAP local GIS workspace service.",
     )
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=settings.server.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -25,9 +25,11 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str | bool]:
         return {
             "status": "ok",
-            "environment": settings.app_env,
-            "database": settings.database_kind,
-            "redis_configured": bool(settings.redis_url),
+            "environment": settings.app.environment,
+            "config_source": settings.config_source,
+            "database": settings.database.kind,
+            "postgis_target": settings.database.uses_postgis,
+            "redis_configured": settings.redis.configured,
         }
 
     app.include_router(api_router, prefix="/api/v1")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy import JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,4 +15,4 @@ class Project(TimestampMixin, Base):
     default_basemap: Mapped[str] = mapped_column(String(80), default="osm")
     current_view: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    layers: Mapped[list["Layer"]] = relationship(back_populates="project")
+    layers: Mapped[list["Layer"]] = relationship(back_populates="project", cascade="all, delete-orphan")

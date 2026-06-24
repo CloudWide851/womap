@@ -232,6 +232,7 @@ frontend/.vite/
 *.db-journal
 *.sqlite
 *.sqlite3
+config/settings.local.yaml
 
 # Local agent workspace notes
 AGENTS.md
