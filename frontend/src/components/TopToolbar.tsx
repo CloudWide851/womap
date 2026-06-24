@@ -10,12 +10,14 @@ import {
   RotateCw,
   Save,
   Scissors,
+  Settings,
   SplitSquareHorizontal,
   Undo2,
 } from 'lucide-react';
 import { memo } from 'react';
 import type { ComponentType } from 'react';
 
+import womapLogo from '../../../logo.svg';
 import { IconTooltipButton } from './IconTooltipButton';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
@@ -54,14 +56,18 @@ const ToolbarToolButton = memo(function ToolbarToolButton({
   );
 });
 
-export function TopToolbar() {
+interface TopToolbarProps {
+  onOpenSettings: () => void;
+}
+
+export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
 
   return (
     <header className="top-toolbar">
       <div className="brand-lockup">
-        <span className="brand-mark">W</span>
+        <img className="brand-logo" src={womapLogo} alt="" data-testid="brand-logo" />
         <div>
           <strong>WOMAP</strong>
           <span>图斑工坊</span>
@@ -88,6 +94,13 @@ export function TopToolbar() {
         <Divider type="vertical" />
         <IconTooltipButton className="tool-icon-button" label="撤销" icon={<Undo2 size={17} />} />
         <IconTooltipButton className="tool-icon-button" label="重做" icon={<Redo2 size={17} />} />
+        <Divider type="vertical" />
+        <IconTooltipButton
+          className="tool-icon-button"
+          label="打开设置"
+          icon={<Settings size={17} />}
+          onClick={onOpenSettings}
+        />
       </nav>
     </header>
   );

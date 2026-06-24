@@ -1,5 +1,5 @@
 import { Slider, Tag, Tooltip } from 'antd';
-import { Eye, EyeOff, Lock, Plus, SlidersHorizontal, Unlock } from 'lucide-react';
+import { Eye, EyeOff, Lock, PanelRightOpen, Plus, SlidersHorizontal, Unlock } from 'lucide-react';
 import { memo } from 'react';
 
 import { IconTooltipButton } from '../../components/IconTooltipButton';
@@ -10,6 +10,7 @@ interface LayerItemProps {
   layer: WorkspaceLayer;
   selected: boolean;
   onSelect: (layerId: string) => void;
+  onInspect: (layerId: string) => void;
   onToggle: (layerId: string) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
 }
@@ -18,6 +19,7 @@ const LayerItem = memo(function LayerItem({
   layer,
   selected,
   onSelect,
+  onInspect,
   onToggle,
   onOpacityChange,
 }: LayerItemProps) {
@@ -55,6 +57,13 @@ const LayerItem = memo(function LayerItem({
             aria-label={layer.locked ? '图层已锁定' : '图层可编辑'}
           />
         </Tooltip>
+        <IconTooltipButton
+          className="layer-action-button"
+          size="small"
+          label={`查看 ${layer.name} 属性`}
+          icon={<PanelRightOpen size={14} />}
+          onClick={() => onInspect(layer.id)}
+        />
       </span>
       <span className="opacity-row">
         <Tooltip title="透明度">
@@ -77,6 +86,7 @@ export function LayerPanel() {
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const selectLayer = useWorkspaceStore((state) => state.selectLayer);
+  const openLayerInspector = useWorkspaceStore((state) => state.openLayerInspector);
   const toggleLayer = useWorkspaceStore((state) => state.toggleLayer);
   const setLayerOpacity = useWorkspaceStore((state) => state.setLayerOpacity);
 
@@ -97,6 +107,7 @@ export function LayerPanel() {
             layer={layer}
             selected={selectedLayerId === layer.id}
             onSelect={selectLayer}
+            onInspect={openLayerInspector}
             onToggle={toggleLayer}
             onOpacityChange={setLayerOpacity}
           />

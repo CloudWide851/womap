@@ -1,13 +1,22 @@
 import { create } from 'zustand';
 
-import type { WorkspaceLayer } from '../types/workspace';
+import type {
+  AttributeInspectorTarget,
+  FeatureAttributePreview,
+  WorkspaceLayer,
+} from '../types/workspace';
 
 interface WorkspaceState {
   activeTool: string;
   selectedLayerId: string | null;
+  inspectorTarget: AttributeInspectorTarget | null;
   layers: WorkspaceLayer[];
+  featurePreviews: FeatureAttributePreview[];
   setActiveTool: (tool: string) => void;
   selectLayer: (layerId: string) => void;
+  openLayerInspector: (layerId: string) => void;
+  openFeatureInspector: (layerId: string, featureId: string) => void;
+  closeInspector: () => void;
   toggleLayer: (layerId: string) => void;
   setLayerOpacity: (layerId: string, opacity: number) => void;
 }
@@ -64,12 +73,59 @@ const initialLayers: WorkspaceLayer[] = [
   },
 ];
 
+const featurePreviews: FeatureAttributePreview[] = [
+  {
+    id: 'feature-boundary-102',
+    layerId: 'project-boundary',
+    title: '边界图斑 102',
+    geometryType: 'Polygon',
+    area: '28.64 ha',
+    perimeter: '3.42 km',
+    bounds: '113.21,23.08,113.33,23.18',
+    properties: {
+      项目编号: 'WM-2026-102',
+      用地类型: '建设用地',
+      数据来源: '示例工作空间',
+      已索引: true,
+      更新批次: 3,
+    },
+  },
+  {
+    id: 'feature-point-018',
+    layerId: 'survey-points',
+    title: '巡查点位 018',
+    geometryType: 'Point',
+    area: '-',
+    perimeter: '-',
+    bounds: '113.27,23.13,113.27,23.13',
+    properties: {
+      点位编号: 'P-018',
+      巡查状态: '待复核',
+      负责人: '现场组',
+      已同步: false,
+    },
+  },
+];
+
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   activeTool: 'select',
   selectedLayerId: 'project-boundary',
+  inspectorTarget: null,
   layers: initialLayers,
+  featurePreviews,
   setActiveTool: (tool) => set({ activeTool: tool }),
   selectLayer: (layerId) => set({ selectedLayerId: layerId }),
+  openLayerInspector: (layerId) =>
+    set({
+      selectedLayerId: layerId,
+      inspectorTarget: { kind: 'layer', layerId },
+    }),
+  openFeatureInspector: (layerId, featureId) =>
+    set({
+      selectedLayerId: layerId,
+      inspectorTarget: { kind: 'feature', layerId, featureId },
+    }),
+  closeInspector: () => set({ inspectorTarget: null }),
   toggleLayer: (layerId) =>
     set((state) => ({
       layers: state.layers.map((layer) =>

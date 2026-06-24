@@ -9,6 +9,7 @@ import XYZ from 'ol/source/XYZ';
 
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import type { BasemapProvider } from '../../types/workspace';
 
 function buildProviderUrls(provider: BasemapProvider): string[] | undefined {
@@ -40,10 +41,16 @@ export function MapCanvas() {
   const mapInstanceRef = useRef<Map | null>(null);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
   const basemaps = useSettingsStore((state) => state.basemaps);
+  const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
+  const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
   const selectedBasemap = useMemo(
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
   );
+  const previewFeature =
+    selectedLayerId === 'survey-points'
+      ? { id: 'feature-point-018', label: 'P-018' }
+      : { id: 'feature-boundary-102', label: 'P-102' };
 
   useEffect(() => {
     if (!mapRef.current) {
@@ -102,10 +109,16 @@ export function MapCanvas() {
           </span>
         </Tooltip>
         <Tooltip title="选中图斑">
-          <span>
+          <button
+            type="button"
+            className="map-feature-trigger"
+            aria-label={`${previewFeature.label} 查看示例图斑属性`}
+            disabled={!selectedLayerId}
+            onClick={() => selectedLayerId && openFeatureInspector(selectedLayerId, previewFeature.id)}
+          >
             <MousePointerSquareDashed size={14} aria-hidden="true" />
-            0
-          </span>
+            {previewFeature.label}
+          </button>
         </Tooltip>
       </div>
     </main>

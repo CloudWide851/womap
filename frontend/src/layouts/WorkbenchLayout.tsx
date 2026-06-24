@@ -6,15 +6,18 @@ import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
 import { PerformancePanel } from '../features/performance/PerformancePanel';
 import { PropertiesPanel } from '../features/properties/PropertiesPanel';
-import { PanelSettings } from '../features/settings/PanelSettings';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
-export function WorkbenchLayout() {
+interface WorkbenchLayoutProps {
+  onOpenSettings: () => void;
+}
+
+export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
   const panels = useSettingsStore((state) => state.panels);
 
   return (
     <div className="workbench">
-      <TopToolbar />
+      <TopToolbar onOpenSettings={onOpenSettings} />
       <div className="workbench-body">
         <aside className="panel layer-panel">
           {panels.layers && <LayerPanel />}
@@ -25,7 +28,6 @@ export function WorkbenchLayout() {
         <aside className="panel properties-panel">
           {panels.properties && <PropertiesPanel />}
           {panels.performance && <PerformancePanel />}
-          <PanelSettings />
         </aside>
       </div>
       <StatusBar />

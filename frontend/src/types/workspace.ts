@@ -1,5 +1,13 @@
 export type GeometryType = 'Point' | 'LineString' | 'Polygon' | 'Mixed';
 export type BasemapType = 'xyz' | 'wms';
+export type AppPageMode = 'workspace' | 'settings';
+export type AttributeInspectorKind = 'layer' | 'feature';
+
+export interface AttributeInspectorTarget {
+  kind: AttributeInspectorKind;
+  layerId: string;
+  featureId?: string;
+}
 
 export interface WorkspaceLayer {
   id: string;
@@ -11,6 +19,17 @@ export interface WorkspaceLayer {
   opacity: number;
   color: string;
   performance: LayerPerformanceState;
+}
+
+export interface FeatureAttributePreview {
+  id: string;
+  layerId: string;
+  title: string;
+  geometryType: GeometryType;
+  area: string;
+  perimeter: string;
+  bounds: string;
+  properties: Record<string, string | number | boolean>;
 }
 
 export interface ToolAction {
