@@ -36,12 +36,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   return (
     <div className="settings-page">
       <header className="settings-header">
-        <div className="brand-lockup settings-brand">
-          <img className="brand-logo" src={womapLogo} alt="" />
-          <div>
-            <strong>WOMAP</strong>
-            <span>工作台设置</span>
-          </div>
+        <div className="brand-lockup settings-brand brand-logo-only">
+          <img className="brand-logo" src={womapLogo} alt="WOMAP" />
         </div>
         <IconTooltipButton
           className="tool-icon-button"

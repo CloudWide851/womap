@@ -20,7 +20,7 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Suspense fallback={<div className="app-loading">WOMAP</div>}>
+      <Suspense fallback={<div className="app-loading" role="status" aria-label="加载中" />}>
         {page === 'settings' ? (
           <SettingsPage onBack={() => setPage('workspace')} />
         ) : (

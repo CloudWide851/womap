@@ -108,18 +108,17 @@ export function MapCanvas() {
             GiST
           </span>
         </Tooltip>
-        <Tooltip title="选中图斑">
-          <button
-            type="button"
-            className="map-feature-trigger"
-            aria-label={`${previewFeature.label} 查看示例图斑属性`}
-            disabled={!selectedLayerId}
-            onClick={() => selectedLayerId && openFeatureInspector(selectedLayerId, previewFeature.id)}
-          >
-            <MousePointerSquareDashed size={14} aria-hidden="true" />
-            {previewFeature.label}
-          </button>
-        </Tooltip>
+        <button
+          type="button"
+          className="map-feature-trigger"
+          aria-label={`${previewFeature.label} 查看示例图斑属性`}
+          title="选中图斑"
+          disabled={!selectedLayerId}
+          onClick={() => selectedLayerId && openFeatureInspector(selectedLayerId, previewFeature.id)}
+        >
+          <MousePointerSquareDashed size={14} aria-hidden="true" />
+          {previewFeature.label}
+        </button>
       </div>
     </main>
   );

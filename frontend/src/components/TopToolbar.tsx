@@ -66,12 +66,8 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
 
   return (
     <header className="top-toolbar">
-      <div className="brand-lockup">
-        <img className="brand-logo" src={womapLogo} alt="" data-testid="brand-logo" />
-        <div>
-          <strong>WOMAP</strong>
-          <span>图斑工坊</span>
-        </div>
+      <div className="brand-lockup brand-logo-only">
+        <img className="brand-logo" src={womapLogo} alt="WOMAP" data-testid="brand-logo" />
       </div>
 
       <nav className="toolbar-actions" aria-label="主工具栏">

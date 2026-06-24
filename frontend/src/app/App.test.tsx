@@ -13,8 +13,9 @@ describe('App', () => {
   it('renders the professional GIS workbench shell', () => {
     render(<App />);
 
-    expect(screen.getByText('WOMAP')).toBeInTheDocument();
     expect(screen.getByTestId('brand-logo')).toBeInTheDocument();
+    expect(screen.queryByText('WOMAP')).not.toBeInTheDocument();
+    expect(screen.queryByText('图斑工坊')).not.toBeInTheDocument();
     expect(screen.getByText('工作空间')).toBeInTheDocument();
     expect(screen.getAllByText('底图').length).toBeGreaterThan(0);
     expect(screen.getAllByText('性能').length).toBeGreaterThan(0);
