@@ -1,4 +1,4 @@
-import { Button, Divider, Tooltip } from 'antd';
+import { Divider } from 'antd';
 import {
   Combine,
   Download,
@@ -13,7 +13,10 @@ import {
   SplitSquareHorizontal,
   Undo2,
 } from 'lucide-react';
+import { memo } from 'react';
+import type { ComponentType } from 'react';
 
+import { IconTooltipButton } from './IconTooltipButton';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 const tools = [
@@ -25,6 +28,31 @@ const tools = [
   { key: 'split', label: '分割', icon: SplitSquareHorizontal },
   { key: 'merge', label: '合并', icon: Combine },
 ];
+
+interface ToolbarToolButtonProps {
+  active: boolean;
+  icon: ComponentType<{ size?: number }>;
+  label: string;
+  onClick: () => void;
+}
+
+const ToolbarToolButton = memo(function ToolbarToolButton({
+  active,
+  icon: Icon,
+  label,
+  onClick,
+}: ToolbarToolButtonProps) {
+  return (
+    <IconTooltipButton
+      className="tool-icon-button"
+      type={active ? 'primary' : 'default'}
+      icon={<Icon size={17} />}
+      label={label}
+      onClick={onClick}
+      aria-pressed={active}
+    />
+  );
+});
 
 export function TopToolbar() {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
@@ -41,36 +69,25 @@ export function TopToolbar() {
       </div>
 
       <nav className="toolbar-actions" aria-label="主工具栏">
-        <Tooltip title="导入数据">
-          <Button icon={<Import size={17} />} />
-        </Tooltip>
-        <Tooltip title="保存项目">
-          <Button icon={<Save size={17} />} />
-        </Tooltip>
-        <Tooltip title="导出成果">
-          <Button icon={<Download size={17} />} />
-        </Tooltip>
+        <IconTooltipButton className="tool-icon-button" label="导入数据" icon={<Import size={17} />} />
+        <IconTooltipButton className="tool-icon-button" label="保存项目" icon={<Save size={17} />} />
+        <IconTooltipButton className="tool-icon-button" label="导出成果" icon={<Download size={17} />} />
         <Divider type="vertical" />
         {tools.map((tool) => {
           const Icon = tool.icon;
           return (
-            <Tooltip key={tool.key} title={tool.label}>
-              <Button
-                type={activeTool === tool.key ? 'primary' : 'default'}
-                icon={<Icon size={17} />}
-                onClick={() => setActiveTool(tool.key)}
-                aria-label={tool.label}
-              />
-            </Tooltip>
+            <ToolbarToolButton
+              key={tool.key}
+              active={activeTool === tool.key}
+              icon={Icon}
+              label={tool.label}
+              onClick={() => setActiveTool(tool.key)}
+            />
           );
         })}
         <Divider type="vertical" />
-        <Tooltip title="撤销">
-          <Button icon={<Undo2 size={17} />} />
-        </Tooltip>
-        <Tooltip title="重做">
-          <Button icon={<Redo2 size={17} />} />
-        </Tooltip>
+        <IconTooltipButton className="tool-icon-button" label="撤销" icon={<Undo2 size={17} />} />
+        <IconTooltipButton className="tool-icon-button" label="重做" icon={<Redo2 size={17} />} />
       </nav>
     </header>
   );

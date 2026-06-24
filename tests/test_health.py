@@ -61,3 +61,16 @@ def test_job_status_placeholder_route() -> None:
 
     assert response.status_code == 200
     assert response.json()["id"] == "import-1"
+
+
+def test_runtime_settings_api_uses_yaml_performance_config() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/v1/settings/runtime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["database"] == "postgresql"
+    assert body["postgis_target"] is True
+    assert body["performance"]["max_features_per_request"] == 5000
+    assert body["panel_defaults"]["performance"] is True

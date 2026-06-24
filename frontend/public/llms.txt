@@ -1,0 +1,3 @@
+# WOMAP
+
+WOMAP is a local WebGIS workbench for viewing map data, switching basemaps, inspecting layers, and preparing lightweight feature editing workflows.

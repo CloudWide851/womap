@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { Tooltip } from 'antd';
+import { DatabaseZap, Layers3, MapPinned, MousePointerSquareDashed } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
@@ -38,7 +40,10 @@ export function MapCanvas() {
   const mapInstanceRef = useRef<Map | null>(null);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
   const basemaps = useSettingsStore((state) => state.basemaps);
-  const selectedBasemap = basemaps.find((provider) => provider.id === selectedBasemapId);
+  const selectedBasemap = useMemo(
+    () => basemaps.find((provider) => provider.id === selectedBasemapId),
+    [basemaps, selectedBasemapId],
+  );
 
   useEffect(() => {
     if (!mapRef.current) {
@@ -78,10 +83,30 @@ export function MapCanvas() {
     <main className="map-shell">
       <div className="map-frame" ref={mapRef} />
       <div className="map-floating-strip">
-        <span>{selectedBasemap?.name ?? 'OSM'} 底图</span>
-        <span>bbox 视口加载</span>
-        <span>GiST 空间索引</span>
-        <span>选中 0</span>
+        <Tooltip title="当前底图">
+          <span>
+            <MapPinned size={14} aria-hidden="true" />
+            {selectedBasemap?.name ?? 'OSM'}
+          </span>
+        </Tooltip>
+        <Tooltip title="视口查询策略">
+          <span>
+            <Layers3 size={14} aria-hidden="true" />
+            bbox
+          </span>
+        </Tooltip>
+        <Tooltip title="空间索引">
+          <span>
+            <DatabaseZap size={14} aria-hidden="true" />
+            GiST
+          </span>
+        </Tooltip>
+        <Tooltip title="选中图斑">
+          <span>
+            <MousePointerSquareDashed size={14} aria-hidden="true" />
+            0
+          </span>
+        </Tooltip>
       </div>
     </main>
   );
