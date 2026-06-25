@@ -2,6 +2,7 @@ export type GeometryType = 'Point' | 'LineString' | 'Polygon' | 'Mixed';
 export type BasemapType = 'xyz' | 'wms';
 export type AppPageMode = 'workspace' | 'settings';
 export type AttributeInspectorKind = 'layer' | 'feature';
+export type SessionMode = 'short' | 'long';
 
 export interface AttributeInspectorTarget {
   kind: AttributeInspectorKind;
@@ -90,4 +91,33 @@ export interface JobState {
   status: 'queued' | 'running' | 'done' | 'failed' | 'unknown';
   progress: number;
   message?: string;
+}
+
+export interface LoginSecurityPolicy {
+  username: string;
+  passwordMinLength: number;
+  passwordMaxLength: number;
+  lockoutAttempts: number;
+  lockoutWindowMinutes: number;
+  idleTimeoutMinutes: number;
+  absoluteTimeoutHours: number;
+  renewalTimeoutMinutes: number;
+  rememberMeDays: number;
+  policyRefreshSeconds: number;
+  warnBeforeExpireMinutes: number;
+  secureCookie: boolean;
+  httpOnlyCookie: boolean;
+  sameSite: 'lax' | 'strict' | 'none';
+  rotateAfterLogin: boolean;
+  auditLogging: boolean;
+}
+
+export interface AuthSessionState {
+  authenticated: boolean;
+  username: string | null;
+  mode: SessionMode;
+  expiresAt: number | null;
+  renewalAt: number | null;
+  now: number;
+  error: string | null;
 }

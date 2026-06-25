@@ -1,11 +1,13 @@
-import { ArrowLeft, DatabaseZap, Gauge, KeyRound, MapPinned, PanelsTopLeft, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, DatabaseZap, Gauge, KeyRound, MapPinned, PanelsTopLeft, RotateCw, ShieldCheck } from 'lucide-react';
 import { memo } from 'react';
 import type { ReactNode } from 'react';
 
 import womapLogo from '../../../logo.svg';
 import { IconTooltipButton } from '../components/IconTooltipButton';
 import { BasemapPanel } from '../features/basemaps/BasemapPanel';
+import { SecurityPanel } from '../features/security/SecurityPanel';
 import { PanelSettings } from '../features/settings/PanelSettings';
+import { useAuthStore } from '../stores/useAuthStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 interface SettingsPageProps {
@@ -30,6 +32,7 @@ const SettingsMetric = memo(function SettingsMetric({ icon, label, value }: Sett
 
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const basemaps = useSettingsStore((state) => state.basemaps);
+  const policy = useAuthStore((state) => state.policy);
   const enabledBasemapCount = basemaps.filter((provider) => provider.enabled).length;
   const keyedProviderCount = basemaps.filter((provider) => provider.apiKeyConfigured).length;
 
@@ -69,6 +72,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
               label="密钥"
               value={`${keyedProviderCount}`}
             />
+            <SettingsMetric
+              icon={<RotateCw size={17} aria-hidden="true" />}
+              label="刷新"
+              value={`${policy.policyRefreshSeconds}s`}
+            />
           </div>
         </section>
 
@@ -78,6 +86,9 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           </section>
           <section className="settings-card settings-card-basemap">
             <BasemapPanel />
+          </section>
+          <section className="settings-card settings-card-security">
+            <SecurityPanel />
           </section>
           <section className="settings-card">
             <div className="section-title">

@@ -35,6 +35,36 @@ redis:
   password: null
   socket_timeout_seconds: 5
 
+auth:
+  enabled: true
+  local_user:
+    username: local-admin
+    password_hash: "replace-with-local-pbkdf2-sha256-hash"
+    password_hash_algorithm: pbkdf2_sha256
+  password_policy:
+    min_length: 15
+    max_length: 128
+    block_common_passwords: true
+  session:
+    idle_timeout_minutes: 30
+    absolute_timeout_hours: 12
+    renewal_timeout_minutes: 30
+    remember_me_days: 7
+    cookie_name: womap_session
+    secure_cookie: true
+    http_only_cookie: true
+    same_site: lax
+  throttling:
+    lockout_attempts: 5
+    lockout_window_minutes: 15
+  dynamic_update:
+    policy_refresh_seconds: 30
+    warn_before_expire_minutes: 5
+    rotate_after_login: true
+  audit:
+    log_login_events: true
+    redact_session_id: true
+
 maps:
   providers:
     - id: tianditu-vector

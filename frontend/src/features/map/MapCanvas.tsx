@@ -39,6 +39,7 @@ function createBasemapSource(provider?: BasemapProvider) {
 export function MapCanvas() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<Map | null>(null);
+  const selectedBasemapRef = useRef<BasemapProvider | undefined>(undefined);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
   const basemaps = useSettingsStore((state) => state.basemaps);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
@@ -47,6 +48,7 @@ export function MapCanvas() {
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
   );
+  selectedBasemapRef.current = selectedBasemap;
   const previewFeature =
     selectedLayerId === 'survey-points'
       ? { id: 'feature-point-018', label: 'P-018' }
@@ -57,22 +59,35 @@ export function MapCanvas() {
       return;
     }
 
-    const baseLayer = new TileLayer({
-      source: createBasemapSource(selectedBasemap),
+    let map: Map | null = null;
+    let timeoutId: number | null = null;
+    const frameId = window.requestAnimationFrame(() => {
+      timeoutId = window.setTimeout(() => {
+        if (!mapRef.current) {
+          return;
+        }
+        const baseLayer = new TileLayer({
+          source: createBasemapSource(selectedBasemapRef.current),
+        });
+        map = new Map({
+          target: mapRef.current,
+          layers: [baseLayer],
+          view: new View({
+            center: [12608500, 2644100],
+            zoom: 10,
+          }),
+          controls: [],
+        });
+        mapInstanceRef.current = map;
+      }, 0);
     });
-    const map = new Map({
-      target: mapRef.current,
-      layers: [baseLayer],
-      view: new View({
-        center: [12608500, 2644100],
-        zoom: 10,
-      }),
-      controls: [],
-    });
-    mapInstanceRef.current = map;
 
     return () => {
-      map.setTarget(undefined);
+      window.cancelAnimationFrame(frameId);
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      map?.setTarget(undefined);
       mapInstanceRef.current = null;
     };
   }, []);

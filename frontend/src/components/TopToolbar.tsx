@@ -11,14 +11,17 @@ import {
   Save,
   Scissors,
   Settings,
+  ShieldCheck,
   SplitSquareHorizontal,
   Undo2,
+  LogOut,
 } from 'lucide-react';
 import { memo } from 'react';
 import type { ComponentType } from 'react';
 
 import womapLogo from '../../../logo.svg';
 import { IconTooltipButton } from './IconTooltipButton';
+import { formatRemainingTime, useAuthStore } from '../stores/useAuthStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 const tools = [
@@ -63,6 +66,11 @@ interface TopToolbarProps {
 export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
+  const mode = useAuthStore((state) => state.mode);
+  const expiresAt = useAuthStore((state) => state.expiresAt);
+  const now = useAuthStore((state) => state.now);
+  const logout = useAuthStore((state) => state.logout);
+  const remaining = expiresAt ? formatRemainingTime(expiresAt - now) : '--';
 
   return (
     <header className="top-toolbar">
@@ -96,6 +104,16 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
           label="打开设置"
           icon={<Settings size={17} />}
           onClick={onOpenSettings}
+        />
+        <span className="session-chip" aria-label={`当前${mode === 'long' ? '长' : '短'}会话 ${remaining}`}>
+          <ShieldCheck size={15} aria-hidden="true" />
+          {mode === 'long' ? '长' : '短'} {remaining}
+        </span>
+        <IconTooltipButton
+          className="tool-icon-button"
+          label="退出登录"
+          icon={<LogOut size={17} />}
+          onClick={logout}
         />
       </nav>
     </header>

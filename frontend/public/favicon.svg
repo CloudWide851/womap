@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="19 6.8 557 176">
+  <style>
+    .brand-primary { fill: #024275; }
+    .brand-line { fill: none; stroke: #024275; stroke-width: 9.0021; stroke-linecap: square; }
+    .brand-soft { fill: #a2bacd; }
+  </style>
+  <polyline class="brand-line" points="54 49 94 144 136 72 226 44 177 142 136 73" />
+  <path class="brand-soft" d="m63 51c-0.5 5.6-5.6 9.6-11.1 8.6-3.8-0.9-6.9-4-6.9-8.6-0.6-5 3.5-9.9 9-9.6 5 0 9.4 4.1 9 9.6z" />
+  <circle class="brand-soft" cx="94.5" cy="144" r="9.5" />
+  <circle class="brand-soft" cx="136.1" cy="72.4" r="9.5" />
+  <circle class="brand-soft" cx="177.7" cy="141.9" r="9.5" />
+  <circle class="brand-soft" cx="224.5" cy="42.5" r="9.5" />
+  <circle class="brand-primary" cx="260" cy="96" r="30" />
+</svg>

@@ -12,6 +12,9 @@ def test_yaml_settings_loads_split_connection_fields() -> None:
     assert settings.app.name == "WOMAP"
     assert settings.database.host == "localhost"
     assert settings.redis.port == 6379
+    assert settings.auth.password_policy.min_length >= 15
+    assert settings.auth.session.idle_timeout_minutes > 0
+    assert settings.auth.session.absolute_timeout_hours > 0
     assert settings.performance.default_bbox_limit == 1000
 
 
@@ -46,6 +49,7 @@ maps:
 
 
 def test_runtime_feature_modules_import_cleanly() -> None:
+    import app.features.auth.router
     import app.features.basemaps.router
     import app.features.jobs.router
     import app.features.layers.router
@@ -53,6 +57,7 @@ def test_runtime_feature_modules_import_cleanly() -> None:
     import app.features.projects.router
     import app.features.settings.router
 
+    assert app.features.auth.router.router is not None
     assert app.features.basemaps.router.router is not None
 
 
@@ -87,6 +92,15 @@ def test_local_yaml_settings_load_without_exposing_secrets() -> None:
             for provider in settings.maps.providers
         ],
         "performance": settings.performance.model_dump(),
+        "auth": {
+            "enabled": settings.auth.enabled,
+            "credential_configured": settings.auth.local_user.password_configured,
+            "min_length": settings.auth.password_policy.min_length,
+            "max_length": settings.auth.password_policy.max_length,
+            "idle_timeout_minutes": settings.auth.session.idle_timeout_minutes,
+            "absolute_timeout_hours": settings.auth.session.absolute_timeout_hours,
+            "policy_refresh_seconds": settings.auth.dynamic_update.policy_refresh_seconds,
+        },
     }
 
     assert redacted_summary["source"].endswith("settings.local.yaml")
@@ -98,3 +112,6 @@ def test_local_yaml_settings_load_without_exposing_secrets() -> None:
     assert redacted_summary["redis"]["port"] > 0
     assert len(redacted_summary["providers"]) > 0
     assert redacted_summary["performance"]["max_features_per_request"] >= 1
+    assert redacted_summary["auth"]["min_length"] >= 15
+    assert redacted_summary["auth"]["max_length"] >= redacted_summary["auth"]["min_length"]
+    assert redacted_summary["auth"]["policy_refresh_seconds"] > 0

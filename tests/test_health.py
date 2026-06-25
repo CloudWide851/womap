@@ -34,6 +34,34 @@ def test_basemaps_api_returns_enabled_providers() -> None:
     assert all(provider["enabled"] for provider in body)
 
 
+def test_auth_policy_api_returns_public_security_settings() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/api/v1/auth/policy")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["password_min_length"] >= 15
+    assert body["password_max_length"] >= body["password_min_length"]
+    assert body["idle_timeout_minutes"] > 0
+    assert body["absolute_timeout_hours"] > 0
+    assert body["secure_cookie"] is True
+    assert body["http_only_cookie"] is True
+    assert "password_hash" not in body
+
+
+def test_login_rejects_password_outside_policy_before_secret_check() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "local-admin", "password": "short", "session_mode": "short"},
+    )
+
+    assert response.status_code == 400
+
+
 def test_feature_query_rejects_invalid_bbox() -> None:
     client = TestClient(create_app())
 
@@ -73,4 +101,6 @@ def test_runtime_settings_api_uses_yaml_performance_config() -> None:
     assert body["database"] == "postgresql"
     assert body["postgis_target"] is True
     assert body["performance"]["max_features_per_request"] == 5000
+    assert body["auth"]["password_min_length"] >= 15
+    assert body["auth"]["policy_refresh_seconds"] > 0
     assert body["panel_defaults"]["performance"] is True

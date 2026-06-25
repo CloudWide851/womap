@@ -108,6 +108,73 @@ class RedisSettings(BaseModel):
         return bool(self.host and self.port)
 
 
+class LocalUserAuthSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    username: str = "local-admin"
+    password_hash: str = ""
+    password_hash_algorithm: Literal["pbkdf2_sha256"] = "pbkdf2_sha256"
+
+    @property
+    def password_configured(self) -> bool:
+        return bool(self.password_hash and not self.password_hash.startswith("replace-with-"))
+
+
+class PasswordPolicySettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    min_length: int = 15
+    max_length: int = 128
+    block_common_passwords: bool = True
+
+
+class SessionSecuritySettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    idle_timeout_minutes: int = 30
+    absolute_timeout_hours: int = 12
+    renewal_timeout_minutes: int = 30
+    remember_me_days: int = 7
+    cookie_name: str = "womap_session"
+    secure_cookie: bool = True
+    http_only_cookie: bool = True
+    same_site: Literal["lax", "strict", "none"] = "lax"
+
+
+class AuthThrottleSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    lockout_attempts: int = 5
+    lockout_window_minutes: int = 15
+
+
+class AuthDynamicUpdateSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    policy_refresh_seconds: int = 30
+    warn_before_expire_minutes: int = 5
+    rotate_after_login: bool = True
+
+
+class AuthAuditSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    log_login_events: bool = True
+    redact_session_id: bool = True
+
+
+class AuthSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    local_user: LocalUserAuthSettings = Field(default_factory=LocalUserAuthSettings)
+    password_policy: PasswordPolicySettings = Field(default_factory=PasswordPolicySettings)
+    session: SessionSecuritySettings = Field(default_factory=SessionSecuritySettings)
+    throttling: AuthThrottleSettings = Field(default_factory=AuthThrottleSettings)
+    dynamic_update: AuthDynamicUpdateSettings = Field(default_factory=AuthDynamicUpdateSettings)
+    audit: AuthAuditSettings = Field(default_factory=AuthAuditSettings)
+
+
 class MapProviderSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -154,6 +221,7 @@ class Settings(BaseModel):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     test_database: TestDatabaseSettings = Field(default_factory=TestDatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
     maps: MapsSettings = Field(default_factory=MapsSettings)
     performance: PerformanceSettings = Field(default_factory=PerformanceSettings)
     config_source: str = "defaults"
