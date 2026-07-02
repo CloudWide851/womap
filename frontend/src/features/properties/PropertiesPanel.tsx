@@ -55,7 +55,7 @@ export function PropertiesPanel() {
               <strong>{selectedLayer.geometryType}</strong>
               <span>{selectedLayer.featureCount} 个要素</span>
             </div>
-            <Tag className="soft-status-tag" color={selectedLayer.visible ? 'green' : 'default'}>
+            <Tag className="soft-status-tag" color={selectedLayer.visible ? 'geekblue' : 'default'}>
               {selectedLayer.visible ? '显示' : '隐藏'}
             </Tag>
           </div>

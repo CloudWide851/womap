@@ -95,7 +95,7 @@ function createInitialLayers(): WorkspaceLayer[] {
       visible: true,
       locked: false,
       opacity: 0.78,
-      color: '#256f5d',
+      color: '#4f46d8',
       fields: [
         {
           name: 'project_code',
@@ -137,7 +137,7 @@ function createInitialLayers(): WorkspaceLayer[] {
       visible: true,
       locked: false,
       opacity: 1,
-      color: '#c15f2e',
+      color: '#c45b35',
       fields: [
         {
           name: 'point_code',
@@ -179,7 +179,7 @@ function createInitialLayers(): WorkspaceLayer[] {
       visible: false,
       locked: true,
       opacity: 0.46,
-      color: '#3f62b5',
+      color: '#5c6bcf',
       fields: [
         {
           name: 'overlay_name',
