@@ -52,6 +52,10 @@ describe('App', () => {
     expect(screen.getAllByText('底图').length).toBeGreaterThan(0);
     expect(screen.getAllByText('性能').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('导入数据')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '文件操作' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '编辑工具' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '历史操作' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '工作台状态' })).toBeInTheDocument();
     expect(screen.getByLabelText('新增图层')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '高德矢量' })).toBeInTheDocument();
     expect(screen.getByLabelText('打开设置')).toBeInTheDocument();

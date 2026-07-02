@@ -7,6 +7,14 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 export default defineConfig({
   plugins: [react()],
   cacheDir: '../.vite-cache/frontend',
+  resolve: {
+    alias: [
+      {
+        find: /^@ant-design\/icons-svg\/es\/asn\/(.+)$/,
+        replacement: '@ant-design/icons-svg/lib/asn/$1',
+      },
+    ],
+  },
   build: {
     rollupOptions: {
       output: {
