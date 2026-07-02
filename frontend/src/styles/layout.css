@@ -62,7 +62,9 @@
 .status-bar {
   border-color: var(--color-line);
   background: var(--surface-toolbar);
-  box-shadow: 0 1px 0 oklch(100% 0 0 / 0.74) inset;
+  box-shadow:
+    0 1px 0 oklch(100% 0 0 / 0.78) inset,
+    0 10px 28px oklch(24% 0.035 265 / 0.045);
 }
 
 .top-toolbar {
@@ -113,9 +115,10 @@
   gap: 6px;
   min-height: 38px;
   padding: 3px;
-  border: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 26%, var(--color-line));
   border-radius: 8px;
   background: color-mix(in oklch, var(--color-surface) 88%, var(--color-primary-soft));
+  box-shadow: inset 0 0 0 1px oklch(100% 0 0 / 0.72);
 }
 
 .toolbar-cluster-edit {
@@ -214,10 +217,12 @@
   min-height: 0;
   padding: 14px;
   overflow: auto;
-  border: 1px solid var(--color-line);
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 24%, var(--color-line));
   border-radius: 8px;
   background: var(--surface-panel);
-  box-shadow: var(--shadow-panel);
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 0 0 1px oklch(100% 0 0 / 0.72);
   contain: layout paint;
   animation: surface-rise var(--motion-panel) var(--ease-out-quint) both;
 }
@@ -225,7 +230,7 @@
 .panel-section {
   padding-bottom: 14px;
   margin-bottom: 14px;
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 1px solid color-mix(in oklch, var(--color-line-strong) 18%, var(--color-line));
   animation: panel-reveal var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -291,7 +296,7 @@
   gap: 9px var(--space-3);
   width: 100%;
   padding: 10px;
-  border: 1px solid var(--color-line);
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 18%, var(--color-line));
   border-radius: 8px;
   color: inherit;
   background: var(--color-surface);
@@ -421,10 +426,12 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--color-line);
+  border: 1px solid color-mix(in oklch, var(--color-primary) 18%, var(--color-line));
   border-radius: 8px;
   background: var(--surface-map);
-  box-shadow: var(--shadow-map);
+  box-shadow:
+    var(--shadow-map),
+    inset 0 0 0 1px oklch(100% 0 0 / 0.88);
   contain: layout paint;
 }
 
@@ -442,7 +449,7 @@
   height: min(190px, 30%);
   border-top: 1px solid var(--surface-map-line);
   border-right: 1px solid var(--surface-map-line);
-  opacity: 0.7;
+  opacity: 0.86;
 }
 
 .map-shell::after {
@@ -579,7 +586,7 @@
   display: grid;
   gap: 7px;
   padding: 9px 10px;
-  border: 1px solid var(--color-line);
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 18%, var(--color-line));
   border-radius: 8px;
   background: var(--color-surface);
 }
@@ -757,26 +764,27 @@
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 0 12px;
   border-top: 1px solid var(--color-line);
   color: var(--color-muted);
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   white-space: nowrap;
   contain: layout paint;
 }
 
 .status-item,
 .save-state {
-  min-height: 22px;
-  padding: 0 4px;
-  border-radius: 5px;
+  min-height: 23px;
+  padding: 0 5px;
+  border-radius: 6px;
 }
 
 .status-notice {
   max-width: min(320px, 34vw);
   color: var(--color-ink);
   font-weight: 720;
+  background: color-mix(in oklch, var(--color-primary-soft) 52%, var(--color-surface));
 }
 
 .status-notice span {
@@ -872,7 +880,7 @@
   gap: 10px;
   align-items: center;
   padding: 9px 10px;
-  border: 1px solid var(--color-line);
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 18%, var(--color-line));
   border-radius: 8px;
   background: var(--color-surface);
 }

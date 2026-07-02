@@ -225,6 +225,7 @@ frontend/dist/
 frontend/.env.local
 frontend/.vite/
 .vite-cache/
+.womap-launcher/
 *.tsbuildinfo
 
 # Local database files
@@ -240,3 +241,7 @@ AGENTS_LOG.md
 MEMORY.md
 .impeccable.md
 docs/
+.agents/
+.codex/
+.codegraph/
+.trellis/
