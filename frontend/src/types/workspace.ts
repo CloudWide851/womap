@@ -3,6 +3,9 @@ export type BasemapType = 'xyz' | 'wms';
 export type AppPageMode = 'workspace' | 'settings';
 export type AttributeInspectorKind = 'layer' | 'feature';
 export type SessionMode = 'short' | 'long';
+export type WorkspaceFieldType = 'string' | 'number' | 'boolean' | 'date';
+export type WorkspaceNoticeTone = 'info' | 'success' | 'warning';
+export type WorkspaceCommand = 'import-data' | 'save-project' | 'export-results' | 'undo' | 'redo' | 'add-layer';
 
 export interface AttributeInspectorTarget {
   kind: AttributeInspectorKind;
@@ -19,7 +22,24 @@ export interface WorkspaceLayer {
   locked: boolean;
   opacity: number;
   color: string;
+  fields: WorkspaceField[];
   performance: LayerPerformanceState;
+}
+
+export interface WorkspaceField {
+  name: string;
+  alias: string;
+  type: WorkspaceFieldType;
+  nullable: boolean;
+  example: string | number | boolean;
+  description: string;
+}
+
+export interface WorkspaceNotice {
+  id: number;
+  tone: WorkspaceNoticeTone;
+  title: string;
+  detail: string;
 }
 
 export interface FeatureAttributePreview {

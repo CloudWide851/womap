@@ -98,28 +98,48 @@ export function AttributeInspector() {
             </section>
           </>
         ) : (
-          <Descriptions
-            className="attribute-description"
-            column={1}
-            size="small"
-            bordered
-            items={[
-              { key: 'geometry', label: '几何类型', children: layer?.geometryType ?? '-' },
-              { key: 'count', label: '要素数量', children: layer?.featureCount ?? 0 },
-              { key: 'visible', label: '显示状态', children: layer?.visible ? '显示' : '隐藏' },
-              { key: 'locked', label: '编辑状态', children: layer?.locked ? '锁定' : '可编辑' },
-              {
-                key: 'opacity',
-                label: '透明度',
-                children: layer ? `${Math.round(layer.opacity * 100)}%` : '-',
-              },
-              {
-                key: 'strategy',
-                label: '加载策略',
-                children: layer?.performance.recommendedMode ?? '-',
-              },
-            ]}
-          />
+          <>
+            <Descriptions
+              className="attribute-description"
+              column={1}
+              size="small"
+              bordered
+              items={[
+                { key: 'geometry', label: '几何类型', children: layer?.geometryType ?? '-' },
+                { key: 'count', label: '要素数量', children: layer?.featureCount ?? 0 },
+                { key: 'fields', label: '字段数量', children: layer?.fields.length ?? 0 },
+                { key: 'visible', label: '显示状态', children: layer?.visible ? '显示' : '隐藏' },
+                { key: 'locked', label: '编辑状态', children: layer?.locked ? '锁定' : '可编辑' },
+                {
+                  key: 'opacity',
+                  label: '透明度',
+                  children: layer ? `${Math.round(layer.opacity * 100)}%` : '-',
+                },
+                {
+                  key: 'strategy',
+                  label: '加载策略',
+                  children: layer?.performance.recommendedMode ?? '-',
+                },
+              ]}
+            />
+            {layer && (
+              <section className="attribute-section">
+                <div className="section-title">
+                  <TableProperties size={16} />
+                  <span>字段结构</span>
+                </div>
+                <div className="attribute-row-list">
+                  {layer.fields.map((field) => (
+                    <PropertyRow
+                      key={field.name}
+                      name={field.alias}
+                      value={`${field.name} · ${field.type} · ${field.nullable ? '可空' : '必填'} · ${String(field.example)}`}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
         )}
       </aside>
     </>

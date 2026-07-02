@@ -89,6 +89,7 @@ export function LayerPanel() {
   const openLayerInspector = useWorkspaceStore((state) => state.openLayerInspector);
   const toggleLayer = useWorkspaceStore((state) => state.toggleLayer);
   const setLayerOpacity = useWorkspaceStore((state) => state.setLayerOpacity);
+  const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
 
   return (
     <section className="panel-section layer-panel-section">
@@ -97,7 +98,12 @@ export function LayerPanel() {
           <p>图层</p>
           <h2>工作空间</h2>
         </div>
-        <IconTooltipButton size="small" label="新增图层" icon={<Plus size={15} />} />
+        <IconTooltipButton
+          size="small"
+          label="新增图层"
+          icon={<Plus size={15} />}
+          onClick={() => notifyCommand('add-layer')}
+        />
       </div>
 
       <div className="layer-list">

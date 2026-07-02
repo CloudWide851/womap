@@ -1,6 +1,7 @@
 import { StatusBar } from '../components/StatusBar';
 import { TopToolbar } from '../components/TopToolbar';
 import { BasemapPanel } from '../features/basemaps/BasemapPanel';
+import { FieldPanel } from '../features/fields/FieldPanel';
 import { JobPanel } from '../features/jobs/JobPanel';
 import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
@@ -27,6 +28,7 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
         <MapCanvas />
         <aside className="panel properties-panel">
           {panels.properties && <PropertiesPanel />}
+          {panels.fields && <FieldPanel />}
           {panels.performance && <PerformancePanel />}
         </aside>
       </div>

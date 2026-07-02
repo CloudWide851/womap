@@ -65,6 +65,7 @@ interface TopToolbarProps {
 export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
+  const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
   const mode = useAuthStore((state) => state.mode);
   const expiresAt = useAuthStore((state) => state.expiresAt);
   const now = useAuthStore((state) => state.now);
@@ -79,9 +80,24 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
 
       <nav className="toolbar-actions" aria-label="主工具栏">
         <span className="toolbar-cluster toolbar-cluster-file" role="group" aria-label="文件操作">
-          <IconTooltipButton className="tool-icon-button" label="导入数据" icon={<Import size={17} />} />
-          <IconTooltipButton className="tool-icon-button" label="保存项目" icon={<Save size={17} />} />
-          <IconTooltipButton className="tool-icon-button" label="导出成果" icon={<Download size={17} />} />
+          <IconTooltipButton
+            className="tool-icon-button"
+            label="导入数据"
+            icon={<Import size={17} />}
+            onClick={() => notifyCommand('import-data')}
+          />
+          <IconTooltipButton
+            className="tool-icon-button"
+            label="保存项目"
+            icon={<Save size={17} />}
+            onClick={() => notifyCommand('save-project')}
+          />
+          <IconTooltipButton
+            className="tool-icon-button"
+            label="导出成果"
+            icon={<Download size={17} />}
+            onClick={() => notifyCommand('export-results')}
+          />
         </span>
 
         <span className="toolbar-cluster toolbar-cluster-edit" role="group" aria-label="编辑工具">
@@ -100,8 +116,18 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
         </span>
 
         <span className="toolbar-cluster toolbar-cluster-history" role="group" aria-label="历史操作">
-          <IconTooltipButton className="tool-icon-button" label="撤销" icon={<Undo2 size={17} />} />
-          <IconTooltipButton className="tool-icon-button" label="重做" icon={<Redo2 size={17} />} />
+          <IconTooltipButton
+            className="tool-icon-button"
+            label="撤销"
+            icon={<Undo2 size={17} />}
+            onClick={() => notifyCommand('undo')}
+          />
+          <IconTooltipButton
+            className="tool-icon-button"
+            label="重做"
+            icon={<Redo2 size={17} />}
+            onClick={() => notifyCommand('redo')}
+          />
         </span>
 
         <span className="toolbar-spacer" aria-hidden="true" />
