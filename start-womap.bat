@@ -12,11 +12,11 @@ if not exist "%LAUNCHER%" (
 if "%~1"=="" (
   where wt.exe >nul 2>nul
   if not errorlevel 1 (
-    wt.exe new-tab --title "WOMAP Workbench" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%" tui
+    wt.exe new-tab --title "WOMAP Workbench" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%"
     exit /b %ERRORLEVEL%
   )
 
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%" tui
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%LAUNCHER%"
   exit /b %ERRORLEVEL%
 )
 

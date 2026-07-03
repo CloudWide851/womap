@@ -21,6 +21,7 @@ Windows 下优先使用根目录启动器：
 常用命令：
 
 ```powershell
+.\start-womap.bat status
 .\start-womap.bat doctor
 .\start-womap.bat dev
 .\start-womap.bat open
@@ -42,3 +43,18 @@ pnpm dev
 ```
 
 复制 `config/settings.example.yaml` 为忽略的 `config/settings.local.yaml` 后按本机环境修改连接信息。
+
+启动端口也在同一个 YAML 中配置：
+
+```yaml
+server:
+  host: 127.0.0.1
+  port: 8000
+
+frontend:
+  dev_server:
+    host: 127.0.0.1
+    port: 5173
+```
+
+启动器退出交互面板时会尽力关闭它启动的 API/Web 服务；外部占用同一端口的进程只会显示为 `listening`，不会被自动终止。

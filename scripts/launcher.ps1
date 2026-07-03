@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [string]$Command = "tui"
+    [string]$Command = "panel"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,12 +10,113 @@ $Script:Root = Split-Path -Parent $Script:ScriptRoot
 $Script:StateRoot = Join-Path $Script:Root ".womap-launcher"
 $Script:LogRoot = Join-Path $Script:StateRoot "logs"
 $Script:UvCacheRoot = Join-Path $Script:StateRoot "uv-cache"
+$Script:ConfigSource = ""
+$Script:ApiHost = "127.0.0.1"
 $Script:ApiPort = 8000
+$Script:WebHost = "127.0.0.1"
 $Script:WebPort = 5173
-$Script:ApiUrl = "http://127.0.0.1:$Script:ApiPort"
-$Script:WebUrl = "http://127.0.0.1:$Script:WebPort"
+$Script:ApiUrl = "http://127.0.0.1:8000"
+$Script:WebUrl = "http://127.0.0.1:5173"
+$Script:InteractiveCleanupEnabled = $false
+
+function Get-LauncherConfigPath {
+    $localPath = Join-Path $Script:Root "config\settings.local.yaml"
+    if (Test-Path -LiteralPath $localPath) {
+        return $localPath
+    }
+    return (Join-Path $Script:Root "config\settings.example.yaml")
+}
+
+function ConvertFrom-YamlScalarText {
+    param([string]$Value)
+    $text = $Value.Trim()
+    if ($text.StartsWith("""") -and $text.EndsWith("""") -and $text.Length -ge 2) {
+        return $text.Substring(1, $text.Length - 2)
+    }
+    if ($text.StartsWith("'") -and $text.EndsWith("'") -and $text.Length -ge 2) {
+        return $text.Substring(1, $text.Length - 2)
+    }
+    return $text
+}
+
+function Get-YamlScalar {
+    param(
+        [string]$Path,
+        [string]$Default
+    )
+    $configPath = Get-LauncherConfigPath
+    if (-not (Test-Path -LiteralPath $configPath)) {
+        return $Default
+    }
+
+    $target = $Path.Split(".")
+    $stack = @{}
+    try {
+        $lines = Get-Content -LiteralPath $configPath
+    }
+    catch {
+        return $Default
+    }
+
+    foreach ($rawLine in $lines) {
+        $line = $rawLine -replace "\s+#.*$", ""
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        if ($line -notmatch "^(\s*)([^:\s][^:]*):\s*(.*)$") {
+            continue
+        }
+
+        $indent = $Matches[1].Length
+        $key = $Matches[2].Trim()
+        $value = $Matches[3].Trim()
+        $level = [Math]::Floor($indent / 2)
+        $stack[[int]$level] = $key
+        foreach ($existingLevel in @($stack.Keys)) {
+            if ([int]$existingLevel -gt [int]$level) {
+                $stack.Remove($existingLevel)
+            }
+        }
+
+        $parts = @()
+        for ($index = 0; $index -le [int]$level; $index++) {
+            if ($stack.ContainsKey($index)) {
+                $parts += $stack[$index]
+            }
+        }
+        if (($parts -join ".") -eq ($target -join ".") -and -not [string]::IsNullOrWhiteSpace($value)) {
+            return (ConvertFrom-YamlScalarText $value)
+        }
+    }
+    return $Default
+}
+
+function Get-YamlInt {
+    param(
+        [string]$Path,
+        [int]$Default
+    )
+    $rawValue = Get-YamlScalar $Path ([string]$Default)
+    $parsed = 0
+    if ([int]::TryParse($rawValue, [ref]$parsed) -and $parsed -ge 1 -and $parsed -le 65535) {
+        return $parsed
+    }
+    return $Default
+}
+
+function Read-LauncherSettings {
+    $configPath = Get-LauncherConfigPath
+    $Script:ConfigSource = if (Test-Path -LiteralPath $configPath) { $configPath } else { "defaults" }
+    $Script:ApiHost = Get-YamlScalar "server.host" "127.0.0.1"
+    $Script:ApiPort = Get-YamlInt "server.port" 8000
+    $Script:WebHost = Get-YamlScalar "frontend.dev_server.host" "127.0.0.1"
+    $Script:WebPort = Get-YamlInt "frontend.dev_server.port" 5173
+    $Script:ApiUrl = "http://{0}:{1}" -f $Script:ApiHost, $Script:ApiPort
+    $Script:WebUrl = "http://{0}:{1}" -f $Script:WebHost, $Script:WebPort
+}
 
 function Initialize-State {
+    Read-LauncherSettings
     if (-not (Test-Path -LiteralPath $Script:StateRoot)) {
         New-Item -ItemType Directory -Path $Script:StateRoot | Out-Null
     }
@@ -129,6 +230,14 @@ function Get-PortProcessIds {
     return ($ids | Sort-Object -Unique)
 }
 
+function Get-ServiceHost {
+    param([string]$Name)
+    if ($Name -eq "api") {
+        return $Script:ApiHost
+    }
+    return $Script:WebHost
+}
+
 function Get-RecordedProcess {
     param([string]$Name)
     $pidFile = Get-PidFile $Name
@@ -199,13 +308,22 @@ function Get-ServiceStatus {
     if ($null -ne $process) {
         return "running"
     }
-    if ((Test-Path -LiteralPath (Get-MetadataFile $Name)) -and (Test-PortOpen "127.0.0.1" $Port)) {
-        return "running"
-    }
-    if (Test-PortOpen "127.0.0.1" $Port) {
+    if (Test-PortOpen (Get-ServiceHost $Name) $Port) {
         return "listening"
     }
     return "stopped"
+}
+
+function Clear-StaleServiceRecord {
+    param([string]$Name)
+    $pidFile = Get-PidFile $Name
+    $metadataFile = Get-MetadataFile $Name
+    if ((Test-Path -LiteralPath $pidFile) -or (Test-Path -LiteralPath $metadataFile)) {
+        $process = Get-RecordedProcess $Name
+        if ($null -eq $process) {
+            Remove-ServiceRecord $Name
+        }
+    }
 }
 
 function ConvertTo-QuotedPowerShell {
@@ -280,9 +398,11 @@ function Start-ManagedProcess {
     Initialize-State
 
     $port = if ($Name -eq "api") { $Script:ApiPort } else { $Script:WebPort }
+    $hostName = Get-ServiceHost $Name
+    Clear-StaleServiceRecord $Name
     $status = Get-ServiceStatus $Name $port
     if ($status -ne "stopped") {
-        Write-Check $Name $status ("already available on port {0}" -f $port)
+        Write-Check $Name $status ("already available at {0}:{1}" -f $hostName, $port)
         return
     }
 
@@ -324,12 +444,12 @@ catch {
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline) {
         $process = Get-RecordedProcess $Name
-        if ((Test-Path -LiteralPath (Get-MetadataFile $Name)) -and (Test-PortOpen "127.0.0.1" $port)) {
+        if ((Test-Path -LiteralPath (Get-MetadataFile $Name)) -and (Test-PortOpen $hostName $port)) {
             $detail = if ($null -ne $process) {
-                "pid={0}; port={1}; log={2}" -f $process.Id, $port, $logFile
+                "pid={0}; url={1}; log={2}" -f $process.Id, $(if ($Name -eq "api") { $Script:ApiUrl } else { $Script:WebUrl }), $logFile
             }
             else {
-                "port={0}; log={1}" -f $port, $logFile
+                "url={0}; log={1}" -f $(if ($Name -eq "api") { $Script:ApiUrl } else { $Script:WebUrl }), $logFile
             }
             Write-Check $Name "running" $detail
             return
@@ -345,14 +465,14 @@ function Start-Api {
     Start-ManagedProcess `
         -Name "api" `
         -WorkingDirectory $Script:Root `
-        -PowerShellLine ("uv run uvicorn app.main:app --host 127.0.0.1 --port {0} --reload" -f $Script:ApiPort)
+        -PowerShellLine ("uv run uvicorn app.main:app --host {0} --port {1} --reload" -f $Script:ApiHost, $Script:ApiPort)
 }
 
 function Start-Web {
     Start-ManagedProcess `
         -Name "web" `
         -WorkingDirectory (Join-Path $Script:Root "frontend") `
-        -PowerShellLine ("pnpm dev -- --host 127.0.0.1 --port {0}" -f $Script:WebPort)
+        -PowerShellLine ("pnpm dev -- --host {0} --port {1}" -f $Script:WebHost, $Script:WebPort)
 }
 
 function Stop-ManagedProcess {
@@ -360,19 +480,13 @@ function Stop-ManagedProcess {
     $pidFile = Get-PidFile $Name
     $metadataFile = Get-MetadataFile $Name
     $port = if ($Name -eq "api") { $Script:ApiPort } else { $Script:WebPort }
+    $hostName = Get-ServiceHost $Name
     $process = Get-RecordedProcess $Name
-    $portProcessIds = if (Test-Path -LiteralPath $metadataFile) { Get-PortProcessIds $port } else { @() }
     if ($null -ne $process) {
         Stop-ProcessTree -RootProcessId $process.Id
         Write-Check $Name "stopped" ("stopped pid={0}" -f $process.Id)
     }
-    foreach ($portProcessId in $portProcessIds) {
-        if ($null -eq $process -or $portProcessId -ne $process.Id) {
-            Stop-Process -Id $portProcessId -Force -ErrorAction SilentlyContinue
-            Write-Check $Name "stopped" ("stopped port listener pid={0}" -f $portProcessId)
-        }
-    }
-    if ($null -eq $process -and $portProcessIds.Count -eq 0 -and (Test-Path -LiteralPath $pidFile)) {
+    if ($null -eq $process -and (Test-Path -LiteralPath $pidFile)) {
         if (Test-Path -LiteralPath $metadataFile) {
             Write-Check $Name "stopped" "pid file existed, but process was not running"
         }
@@ -380,10 +494,32 @@ function Stop-ManagedProcess {
             Write-Check $Name "stopped" "legacy pid file removed without stopping any process"
         }
     }
-    elseif ($null -eq $process -and $portProcessIds.Count -eq 0) {
+    elseif ($null -eq $process) {
         Write-Check $Name "stopped" "no recorded process"
     }
     Remove-ServiceRecord $Name
+    if (Test-PortOpen $hostName $port) {
+        Write-Check $Name "listening" ("external or orphan listener remains at {0}:{1}" -f $hostName, $port)
+    }
+}
+
+function Stop-AllManagedServices {
+    Stop-ManagedProcess "api"
+    Stop-ManagedProcess "web"
+}
+
+function Enable-InteractiveCleanup {
+    if ($Script:InteractiveCleanupEnabled) {
+        return
+    }
+    $Script:InteractiveCleanupEnabled = $true
+    Register-EngineEvent -SourceIdentifier ([System.Management.Automation.PsEngineEvent]::Exiting) -Action {
+        try {
+            Stop-AllManagedServices
+        }
+        catch {
+        }
+    } | Out-Null
 }
 
 function Invoke-Step {
@@ -430,8 +566,8 @@ function Invoke-Doctor {
     $webStatus = Get-ServiceStatus "web" $Script:WebPort
     $redisStatus = if (Test-PortOpen "localhost" 6379) { "ok" } else { "stopped" }
     $postgresStatus = if (Test-PortOpen "localhost" 5432) { "ok" } else { "stopped" }
-    Write-Check "api port" $apiStatus ("127.0.0.1:{0}" -f $Script:ApiPort)
-    Write-Check "web port" $webStatus ("127.0.0.1:{0}" -f $Script:WebPort)
+    Write-Check "api port" $apiStatus ("{0}:{1}" -f $Script:ApiHost, $Script:ApiPort)
+    Write-Check "web port" $webStatus ("{0}:{1}" -f $Script:WebHost, $Script:WebPort)
     Write-Check "redis port" $redisStatus "localhost:6379"
     Write-Check "postgres port" $postgresStatus "localhost:5432"
 
@@ -442,32 +578,32 @@ function Invoke-Doctor {
 }
 
 function Show-Overview {
+    param([switch]$ClearScreen)
     Initialize-State
-    Clear-Host
+    if ($ClearScreen) {
+        Clear-Host
+    }
     Write-Color "WOMAP Workbench" Cyan
     Write-Host ""
-    Write-Host ("PowerShell: {0}" -f $PSHOME)
-    Write-Host ("Launcher:   {0}" -f $MyInvocation.MyCommand.Path)
+    Write-Host ("Config:  {0}" -f $Script:ConfigSource)
+    Write-Host ("Logs:    {0}" -f (Join-Path $Script:StateRoot "logs"))
     Write-Host ""
-    Write-Host ("{0,-10} {1,-12} {2}" -f "Service", "Status", "Description")
+    Write-Host ("{0,-10} {1,-12} {2}" -f "Service", "Status", "Endpoint")
     Write-Host ("{0,-10} {1,-12} {2}" -f "API", (Get-ServiceStatus "api" $Script:ApiPort), $Script:ApiUrl)
     Write-Host ("{0,-10} {1,-12} {2}" -f "Web", (Get-ServiceStatus "web" $Script:WebPort), $Script:WebUrl)
     Write-Host ("{0,-10} {1,-12} {2}" -f "Redis", $(if (Test-PortOpen "localhost" 6379) { "ok" } else { "stopped" }), "localhost:6379 db=0")
     Write-Host ""
     Write-Host "Commands"
-    Write-Color "  tui" Cyan; Write-Host "       interactive panel"
-    Write-Color "  overview" Cyan; Write-Host "  refresh status"
-    Write-Color "  doctor" Cyan; Write-Host "    run local diagnostics"
-    Write-Color "  api" Cyan; Write-Host "       start FastAPI backend"
-    Write-Color "  web" Cyan; Write-Host "       start Vite frontend"
-    Write-Color "  dev" Cyan; Write-Host "       start API and Web"
-    Write-Color "  open" Cyan; Write-Host "      open Web URL"
-    Write-Color "  stop" Cyan; Write-Host "      stop launcher-managed services"
-    Write-Color "  test" Cyan; Write-Host "      run backend and frontend checks"
-    Write-Color "  build" Cyan; Write-Host "     build frontend"
-    Write-Color "  quit" Cyan; Write-Host "      exit"
-    Write-Host ""
-    Write-Host ("Config: config\settings.local.yaml  Logs: .womap-launcher\logs")
+    Write-Host ("  {0,-8} {1}" -f "status", "refresh this panel")
+    Write-Host ("  {0,-8} {1}" -f "doctor", "run local diagnostics")
+    Write-Host ("  {0,-8} {1}" -f "api", "start FastAPI backend")
+    Write-Host ("  {0,-8} {1}" -f "web", "start Vite frontend")
+    Write-Host ("  {0,-8} {1}" -f "dev", "start API and Web")
+    Write-Host ("  {0,-8} {1}" -f "open", "open Web URL")
+    Write-Host ("  {0,-8} {1}" -f "stop", "stop launcher-managed services")
+    Write-Host ("  {0,-8} {1}" -f "test", "run backend and frontend checks")
+    Write-Host ("  {0,-8} {1}" -f "build", "build frontend")
+    Write-Host ("  {0,-8} {1}" -f "quit", "stop services and exit")
 }
 
 function Invoke-Tests {
@@ -485,46 +621,55 @@ function Invoke-Build {
 function Invoke-CommandName {
     param([string]$Name)
     switch ($Name.ToLowerInvariant()) {
+        "panel" { Invoke-Tui; return 0 }
         "tui" { Invoke-Tui; return 0 }
+        "status" { Show-Overview; return 0 }
         "overview" { Show-Overview; return 0 }
         "doctor" { return (Invoke-Doctor) }
         "api" { Start-Api; return 0 }
         "web" { Start-Web; return 0 }
         "dev" { Start-Api; Start-Web; return 0 }
         "open" { Open-WebUrl; return 0 }
-        "stop" { Stop-ManagedProcess "api"; Stop-ManagedProcess "web"; return 0 }
+        "stop" { Stop-AllManagedServices; return 0 }
         "test" { Invoke-Tests; return 0 }
         "build" { Invoke-Build; return 0 }
-        "quit" { return 0 }
+        "quit" { Stop-AllManagedServices; return 0 }
         default {
             Write-Host ("Unknown command: {0}" -f $Name)
-            Write-Host "Run: start-womap.bat overview"
+            Write-Host "Run: start-womap.bat status"
             return 2
         }
     }
 }
 
 function Invoke-Tui {
-    Show-Overview
-    while ($true) {
-        $inputCommand = Read-Host "womap"
-        if ([string]::IsNullOrWhiteSpace($inputCommand)) {
-            Show-Overview
-            continue
+    Enable-InteractiveCleanup
+    try {
+        Show-Overview -ClearScreen
+        while ($true) {
+            $inputCommand = Read-Host "womap"
+            if ([string]::IsNullOrWhiteSpace($inputCommand)) {
+                Show-Overview -ClearScreen
+                continue
+            }
+            if ($inputCommand.Trim().ToLowerInvariant() -eq "quit") {
+                Stop-AllManagedServices
+                return
+            }
+            try {
+                [void](Invoke-CommandName $inputCommand.Trim())
+            }
+            catch {
+                Write-Color $_.Exception.Message Red
+            }
+            if ($inputCommand.Trim().ToLowerInvariant() -notin @("doctor", "test", "build")) {
+                Start-Sleep -Milliseconds 250
+                Show-Overview -ClearScreen
+            }
         }
-        if ($inputCommand.Trim().ToLowerInvariant() -eq "quit") {
-            return
-        }
-        try {
-            [void](Invoke-CommandName $inputCommand.Trim())
-        }
-        catch {
-            Write-Color $_.Exception.Message Red
-        }
-        if ($inputCommand.Trim().ToLowerInvariant() -notin @("doctor", "test", "build")) {
-            Start-Sleep -Milliseconds 250
-            Show-Overview
-        }
+    }
+    finally {
+        Stop-AllManagedServices
     }
 }
 

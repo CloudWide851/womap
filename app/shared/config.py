@@ -30,6 +30,19 @@ class ServerSettings(BaseModel):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
+class FrontendDevServerSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    host: str = "127.0.0.1"
+    port: int = 5173
+
+
+class FrontendSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    dev_server: FrontendDevServerSettings = Field(default_factory=FrontendDevServerSettings)
+
+
 class DatabasePoolSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -218,6 +231,7 @@ class Settings(BaseModel):
 
     app: AppSettings = Field(default_factory=AppSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
+    frontend: FrontendSettings = Field(default_factory=FrontendSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     test_database: TestDatabaseSettings = Field(default_factory=TestDatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

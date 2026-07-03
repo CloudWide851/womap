@@ -10,6 +10,10 @@ def test_yaml_settings_loads_split_connection_fields() -> None:
     settings = load_settings()
 
     assert settings.app.name == "WOMAP"
+    assert settings.server.host == "127.0.0.1"
+    assert settings.server.port == 8000
+    assert settings.frontend.dev_server.host == "127.0.0.1"
+    assert settings.frontend.dev_server.port == 5173
     assert settings.database.host == "localhost"
     assert settings.redis.port == 6379
     assert settings.auth.password_policy.min_length >= 15
@@ -46,6 +50,44 @@ maps:
         "postgresql+asyncpg://womap:***@localhost:5432/womap"
     )
     assert settings.database.sqlalchemy_url().password == "p@ss:word/with#chars"
+
+
+def test_yaml_settings_loads_custom_runtime_ports(tmp_path: Path) -> None:
+    config_path = tmp_path / "settings.yaml"
+    config_path.write_text(
+        """
+app:
+  name: WOMAP
+server:
+  host: 127.0.0.2
+  port: 8100
+  cors_origins:
+    - http://127.0.0.1:5273
+frontend:
+  dev_server:
+    host: 127.0.0.3
+    port: 5273
+database:
+  driver: postgresql+asyncpg
+  host: localhost
+  port: 5432
+  name: womap
+redis:
+  host: localhost
+  port: 6379
+maps:
+  providers: []
+""",
+        encoding="utf-8",
+    )
+
+    settings = load_settings(config_path)
+
+    assert settings.server.host == "127.0.0.2"
+    assert settings.server.port == 8100
+    assert settings.server.cors_origins == ["http://127.0.0.1:5273"]
+    assert settings.frontend.dev_server.host == "127.0.0.3"
+    assert settings.frontend.dev_server.port == 5273
 
 
 def test_runtime_feature_modules_import_cleanly() -> None:
