@@ -25,6 +25,11 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '进入工作台' })).toBeInTheDocument();
+    expect(screen.getByAltText('WOMAP')).toBeInTheDocument();
+    expect(screen.getByText('默认账号 local-admin')).toBeInTheDocument();
+    expect(screen.getByText('密码不少于 15 位即可进入本地工作台')).toBeInTheDocument();
+    expect(screen.queryByLabelText('工作台预览')).not.toBeInTheDocument();
+    expect(screen.queryByText('本地安全门禁')).not.toBeInTheDocument();
   });
 
   it('shows login security controls before entering the workspace', async () => {
@@ -39,6 +44,13 @@ describe('App', () => {
     );
     expect(screen.getByRole('button', { name: '长会话 7天' })).toBeInTheDocument();
     expect(screen.getByLabelText('登录工作台')).toBeDisabled();
+    expect(screen.getByText('输入至少 15 位密码')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('登录密码'), {
+      target: { value: 'short' },
+    });
+    expect(screen.getByLabelText('登录工作台')).toBeDisabled();
+    expect(screen.getByText('输入至少 15 位密码')).toBeInTheDocument();
   });
 
   it('renders the professional GIS workbench shell', async () => {

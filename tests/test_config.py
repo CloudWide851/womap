@@ -2,12 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from app.shared.config import EXAMPLE_CONFIG_PATH
 from app.shared.config import LOCAL_CONFIG_PATH
 from app.shared.config import load_settings
 
 
 def test_yaml_settings_loads_split_connection_fields() -> None:
-    settings = load_settings()
+    settings = load_settings(EXAMPLE_CONFIG_PATH)
 
     assert settings.app.name == "WOMAP"
     assert settings.server.host == "127.0.0.1"
@@ -110,6 +111,14 @@ def test_local_yaml_settings_load_without_exposing_secrets() -> None:
     settings = load_settings(LOCAL_CONFIG_PATH)
     redacted_summary = {
         "source": settings.config_source,
+        "server": {
+            "host": settings.server.host,
+            "port": settings.server.port,
+        },
+        "frontend": {
+            "host": settings.frontend.dev_server.host,
+            "port": settings.frontend.dev_server.port,
+        },
         "database": {
             "driver": settings.database.driver,
             "host": settings.database.host,
@@ -146,6 +155,10 @@ def test_local_yaml_settings_load_without_exposing_secrets() -> None:
     }
 
     assert redacted_summary["source"].endswith("settings.local.yaml")
+    assert redacted_summary["server"]["host"] == "127.0.0.1"
+    assert redacted_summary["server"]["port"] > 0
+    assert redacted_summary["frontend"]["host"] == "127.0.0.1"
+    assert redacted_summary["frontend"]["port"] == 9173
     assert redacted_summary["database"]["driver"]
     assert redacted_summary["database"]["host"]
     assert redacted_summary["database"]["port"] > 0

@@ -57,4 +57,6 @@ frontend:
     port: 5173
 ```
 
+示例配置默认前端端口为 `5173`；本地 `config/settings.local.yaml` 可以改为其他端口，例如与本机 CORS 配置对齐的 `9173`。启动器会优先读取本地 YAML 中的 `server.host/port` 和 `frontend.dev_server.host/port`。
+
 启动器退出交互面板时会尽力关闭它启动的 API/Web 服务；外部占用同一端口的进程只会显示为 `listening`，不会被自动终止。
