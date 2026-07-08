@@ -42,6 +42,13 @@ pnpm install
 pnpm dev
 ```
 
+前端脚本使用 Vite/Vitest 的 `--configLoader native`，用于避开当前 Windows 受限环境中 `net use` realpath 探测导致的 `spawn EPERM`。手动运行 `pnpm dev` 时，Vite 会优先读取 `config/settings.local.yaml` 中的 `frontend.dev_server.host/port`；也可以显式覆盖：
+
+```powershell
+cd frontend
+pnpm dev --host 127.0.0.1 --port 9173
+```
+
 复制 `config/settings.example.yaml` 为忽略的 `config/settings.local.yaml` 后按本机环境修改连接信息。
 
 启动端口也在同一个 YAML 中配置：
@@ -57,7 +64,7 @@ frontend:
     port: 5173
 ```
 
-示例配置默认前端端口为 `5173`；本地 `config/settings.local.yaml` 可以改为其他端口，例如与本机 CORS 配置对齐的 `9173`。启动器会优先读取本地 YAML 中的 `server.host/port` 和 `frontend.dev_server.host/port`。
+示例配置默认前端端口为 `5173`；本地 `config/settings.local.yaml` 可以改为其他端口，例如与本机 CORS 配置对齐的 `9173`。启动器和 Vite dev server 都会优先读取本地 YAML 中的 `server.host/port` 和 `frontend.dev_server.host/port`。Vite 会严格绑定配置端口，端口被占用时需要先释放端口或调整 YAML。
 
 启动器退出交互面板时会尽力关闭它启动的 API/Web 服务；外部占用同一端口的进程只会显示为 `listening`，不会被自动终止。
 

@@ -10,8 +10,8 @@
   --color-surface-soft: oklch(96.8% 0.006 265);
   --color-panel-top: #ffffff;
   --color-panel-bottom: oklch(97.5% 0.006 265);
-  --color-line: oklch(88.5% 0.01 265);
-  --color-line-strong: oklch(70% 0.025 268);
+  --color-line: oklch(91.5% 0.008 265);
+  --color-line-strong: oklch(78% 0.018 268);
   --color-primary: oklch(47% 0.118 276);
   --color-primary-strong: oklch(28% 0.08 270);
   --color-primary-soft: oklch(94.6% 0.026 281);
@@ -26,10 +26,10 @@
   --surface-panel: #ffffff;
   --surface-panel-alt: oklch(97.6% 0.006 265);
   --surface-map: oklch(95.2% 0.014 258);
-  --surface-map-line: oklch(52% 0.062 268 / 0.3);
-  --shadow-panel: 0 8px 22px oklch(24% 0.03 265 / 0.055);
-  --shadow-map: 0 16px 44px oklch(24% 0.035 265 / 0.11);
-  --shadow-floating: 0 18px 56px oklch(24% 0.035 265 / 0.16);
+  --surface-map-line: oklch(54% 0.058 268 / 0.22);
+  --shadow-panel: 0 6px 16px oklch(24% 0.03 265 / 0.04);
+  --shadow-map: 0 12px 32px oklch(24% 0.035 265 / 0.08);
+  --shadow-floating: 0 16px 44px oklch(24% 0.035 265 / 0.13);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

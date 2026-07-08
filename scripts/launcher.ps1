@@ -286,6 +286,15 @@ function Remove-ServiceRecord {
 
 function Stop-ProcessTree {
     param([int]$RootProcessId)
+    try {
+        & taskkill.exe /PID $RootProcessId /T /F >$null 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+    catch {
+    }
+
     $children = @()
     try {
         $children = Get-CimInstance Win32_Process -Filter ("ParentProcessId={0}" -f $RootProcessId)
@@ -472,7 +481,7 @@ function Start-Web {
     Start-ManagedProcess `
         -Name "web" `
         -WorkingDirectory (Join-Path $Script:Root "frontend") `
-        -PowerShellLine ("pnpm dev -- --host {0} --port {1}" -f $Script:WebHost, $Script:WebPort)
+        -PowerShellLine ("pnpm dev --host {0} --port {1}" -f $Script:WebHost, $Script:WebPort)
 }
 
 function Stop-ManagedProcess {
@@ -485,6 +494,11 @@ function Stop-ManagedProcess {
     if ($null -ne $process) {
         Stop-ProcessTree -RootProcessId $process.Id
         Write-Check $Name "stopped" ("stopped pid={0}" -f $process.Id)
+        Start-Sleep -Milliseconds 350
+        foreach ($listenerId in (Get-PortProcessIds $port)) {
+            Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
+            Write-Check $Name "stopped" ("stopped orphan listener pid={0}" -f $listenerId)
+        }
     }
     if ($null -eq $process -and (Test-Path -LiteralPath $pidFile)) {
         if (Test-Path -LiteralPath $metadataFile) {

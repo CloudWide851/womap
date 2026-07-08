@@ -15,14 +15,14 @@
 
 .app-shell::before {
   position: fixed;
-  inset: 12px;
+  inset: 10px;
   z-index: 0;
   pointer-events: none;
-  border: 1px solid oklch(86% 0.014 268 / 0.42);
-  border-radius: 12px;
+  border: 1px solid oklch(88% 0.012 268 / 0.34);
+  border-radius: 10px;
   box-shadow:
     inset 0 0 0 1px oklch(100% 0 0 / 0.8),
-    0 0 0 1px oklch(96% 0.01 265 / 0.72);
+    0 0 0 1px oklch(96.5% 0.008 265 / 0.62);
   content: "";
 }
 
@@ -53,7 +53,7 @@
 
 .workbench {
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) 28px;
+  grid-template-rows: 50px minmax(0, 1fr) 26px;
   min-width: 0;
 }
 
@@ -64,14 +64,14 @@
   background: var(--surface-toolbar);
   box-shadow:
     0 1px 0 oklch(100% 0 0 / 0.78) inset,
-    0 7px 20px oklch(24% 0.03 265 / 0.032);
+    0 5px 14px oklch(24% 0.03 265 / 0.024);
 }
 
 .top-toolbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 15px;
+  gap: 12px;
+  padding: 0 13px;
   border-bottom: 1px solid var(--color-line);
   contain: layout paint;
 }
@@ -113,14 +113,14 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-height: 36px;
+  min-height: 34px;
   padding: 2px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 22%, var(--color-line));
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--color-surface) 96%, var(--color-primary-soft));
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 14%, var(--color-line));
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--color-surface) 97%, var(--color-primary-soft));
   box-shadow:
-    inset 0 0 0 1px oklch(100% 0 0 / 0.7),
-    0 4px 12px oklch(24% 0.03 265 / 0.028);
+    inset 0 0 0 1px oklch(100% 0 0 / 0.64),
+    0 3px 9px oklch(24% 0.03 265 / 0.02);
 }
 
 .toolbar-cluster-edit {
@@ -135,8 +135,8 @@
 
 .export-popover {
   display: grid;
-  width: 248px;
-  gap: 10px;
+  width: 236px;
+  gap: 9px;
   color: var(--color-ink);
 }
 
@@ -146,7 +146,7 @@
 }
 
 .export-popover-header strong {
-  font-size: 0.84rem;
+  font-size: 0.8rem;
 }
 
 .export-popover-header span {
@@ -166,9 +166,9 @@
   align-items: center;
   width: 100%;
   margin-inline-start: 0;
-  padding: 6px 7px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 14%, var(--color-line));
-  border-radius: 7px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
   background: var(--color-surface);
 }
 
@@ -220,25 +220,25 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 31px;
-  padding: 0 8px;
+  min-height: 29px;
+  padding: 0 7px;
   border: 1px solid color-mix(in oklch, var(--color-primary) 16%, var(--color-line));
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--color-primary-strong);
   background: var(--color-primary-soft);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 760;
   white-space: nowrap;
 }
 
 .tool-icon-button.ant-btn {
-  min-width: 31px;
+  min-width: 29px;
   border-radius: 6px;
   box-shadow: none;
 }
 
 .toolbar-cluster .tool-icon-button.ant-btn {
-  min-width: 30px;
+  min-width: 29px;
 }
 
 .tool-icon-button.ant-btn,
@@ -263,7 +263,7 @@
 .map-feature-trigger:hover,
 .settings-metric:hover {
   transform: translateY(-1px);
-  box-shadow: 0 7px 18px oklch(28% 0.035 265 / 0.07);
+  box-shadow: 0 5px 14px oklch(28% 0.035 265 / 0.052);
 }
 
 .tool-icon-button.ant-btn:active,
@@ -278,11 +278,11 @@
 
 .workbench-body {
   display: grid;
-  grid-template-columns: clamp(236px, 18vw, 282px) minmax(540px, 1fr) clamp(248px, 19vw, 300px);
+  grid-template-columns: clamp(226px, 17.5vw, 272px) minmax(540px, 1fr) clamp(238px, 18.5vw, 288px);
   grid-template-areas: "layers map props";
   min-height: 0;
-  padding: 10px;
-  gap: 10px;
+  padding: 9px;
+  gap: 9px;
   animation: workbench-in var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -300,10 +300,10 @@
 
 .panel {
   min-height: 0;
-  padding: 11px;
+  padding: 9px;
   overflow: auto;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 20%, var(--color-line));
-  border-radius: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 13%, var(--color-line));
+  border-radius: 6px;
   background: var(--surface-panel);
   box-shadow:
     var(--shadow-panel),
@@ -313,9 +313,9 @@
 }
 
 .panel-section {
-  padding-bottom: 11px;
-  margin-bottom: 11px;
-  border-bottom: 1px solid color-mix(in oklch, var(--color-line-strong) 15%, var(--color-line));
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
   animation: panel-reveal var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -330,7 +330,7 @@
   gap: 7px;
   margin-bottom: var(--space-2);
   color: var(--color-ink);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 730;
 }
 
@@ -339,12 +339,12 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .layer-panel-section .panel-heading,
 .properties-panel-section .panel-heading {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .panel-heading p,
@@ -367,7 +367,7 @@
 
 .panel-heading h2 {
   margin-top: 2px;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .layer-list {
@@ -378,11 +378,11 @@
 .layer-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 7px var(--space-2);
+  gap: 6px var(--space-2);
   width: 100%;
-  padding: 8px 8px 9px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 16%, var(--color-line));
-  border-radius: 7px;
+  padding: 7px 7px 8px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
   color: inherit;
   background: var(--color-surface);
   text-align: left;
@@ -403,11 +403,11 @@
 }
 
 .layer-item.is-selected {
-  border-color: color-mix(in oklch, var(--color-primary) 46%, var(--color-line));
-  background: color-mix(in oklch, var(--color-primary-soft) 58%, var(--color-surface));
+  border-color: color-mix(in oklch, var(--color-primary) 34%, var(--color-line));
+  background: color-mix(in oklch, var(--color-primary-soft) 48%, var(--color-surface));
   box-shadow:
-    inset 2px 0 0 var(--color-primary),
-    0 9px 22px oklch(28% 0.04 268 / 0.09);
+    inset 1px 0 0 var(--color-primary),
+    0 6px 16px oklch(28% 0.04 268 / 0.06);
   animation: selected-layer var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -430,13 +430,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
 }
 
 .layer-main span {
   margin-top: 4px;
   color: var(--color-muted);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
 }
 
 .layer-controls {
@@ -511,8 +511,8 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in oklch, var(--color-primary) 16%, var(--color-line));
-  border-radius: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 10%, var(--color-line));
+  border-radius: 6px;
   background: var(--surface-map);
   box-shadow:
     var(--shadow-map),
@@ -566,13 +566,13 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 18%, var(--color-line));
-  border-radius: 7px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
   color: var(--color-ink);
   background: color-mix(in oklch, var(--color-surface) 90%, var(--color-blue-soft));
-  box-shadow: 0 8px 24px oklch(28% 0.038 265 / 0.08);
-  font-size: 0.7rem;
+  box-shadow: 0 6px 18px oklch(28% 0.038 265 / 0.06);
+  font-size: 0.68rem;
   animation: map-strip-in var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -616,9 +616,9 @@
   gap: 7px;
   width: 100%;
   height: auto;
-  padding: 7px 9px;
+  padding: 6px 8px;
   border: 1px solid var(--color-line);
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--color-ink);
   background: var(--color-surface);
   text-align: left;
@@ -639,7 +639,7 @@
 }
 
 .field-panel-section .panel-heading {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .field-panel-summary {
@@ -653,12 +653,12 @@
   align-items: center;
   gap: 5px;
   min-height: 25px;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border: 1px solid var(--color-line);
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--color-primary);
   background: color-mix(in oklch, var(--color-primary-soft) 68%, var(--color-surface));
-  font-size: 0.72rem;
+  font-size: 0.69rem;
   font-weight: 730;
 }
 
@@ -670,9 +670,9 @@
 .field-row {
   display: grid;
   gap: 6px;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 16%, var(--color-line));
-  border-radius: 7px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
   background: var(--color-surface);
 }
 
@@ -685,7 +685,7 @@
 
 .field-row strong {
   display: block;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .field-row span,
@@ -708,9 +708,9 @@
 }
 
 .job-item {
-  padding: 8px;
+  padding: 7px;
   border: 1px solid var(--color-line);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--color-surface);
   contain: content;
 }
@@ -762,9 +762,9 @@
   grid-template-columns: 10px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 8px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 16%, var(--color-line));
-  border-radius: 7px;
+  padding: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
   background: var(--color-surface);
 }
 
@@ -774,7 +774,7 @@
 }
 
 .context-summary-main strong {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
 }
 
 .context-summary-main span {
@@ -796,9 +796,9 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  padding: 8px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 14%, var(--color-line));
-  border-radius: 7px;
+  padding: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 9%, var(--color-line));
+  border-radius: 6px;
   color: var(--color-ink);
   background: var(--color-surface);
 }
@@ -808,7 +808,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 730;
 }
 
@@ -816,9 +816,9 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  padding: 8px 9px;
+  padding: 7px 8px;
   border: 1px solid var(--color-line);
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--color-muted);
   background: var(--color-surface);
   font-size: 0.72rem;
@@ -850,10 +850,10 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-top: 1px solid var(--color-line);
   color: var(--color-muted);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   white-space: nowrap;
   contain: layout paint;
 }
@@ -868,7 +868,7 @@
 }
 
 .status-notice {
-  max-width: min(300px, 34vw);
+  max-width: min(280px, 32vw);
   border-color: color-mix(in oklch, var(--color-primary) 14%, var(--color-line));
   color: var(--color-ink);
   font-weight: 700;
@@ -910,10 +910,10 @@
   bottom: 16px;
   z-index: 21;
   width: min(400px, calc(100vw - 32px));
-  padding: 14px;
+  padding: 12px;
   overflow: auto;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 52%, var(--color-line));
-  border-radius: 8px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 34%, var(--color-line));
+  border-radius: 7px;
   background: var(--color-surface-strong);
   box-shadow: var(--shadow-floating);
   contain: layout paint;
@@ -943,7 +943,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .attribute-description {
@@ -969,9 +969,9 @@
   grid-template-columns: minmax(78px, 0.7fr) minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 16%, var(--color-line));
-  border-radius: 7px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
   background: var(--color-surface);
 }
 
@@ -982,7 +982,7 @@
 
 .attribute-row strong {
   overflow-wrap: anywhere;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .login-page {
@@ -1043,7 +1043,7 @@
 
 .login-panel-heading h1 {
   color: var(--color-primary-strong);
-  font-size: clamp(1.45rem, 2.6vw, 2rem);
+  font-size: clamp(1.32rem, 2.2vw, 1.72rem);
   line-height: 1.05;
 }
 
@@ -1201,22 +1201,22 @@
 
 .settings-page {
   display: grid;
-  grid-template-rows: 62px minmax(0, 1fr);
+  grid-template-rows: 56px minmax(0, 1fr);
 }
 
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  padding: 0 18px;
+  gap: 14px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--color-line);
   contain: layout paint;
 }
 
 .settings-content {
   min-height: 0;
-  padding: 18px;
+  padding: 14px;
   overflow: auto;
   contain: layout paint;
   animation: settings-page-in var(--motion-panel) var(--ease-out-quint) both;
@@ -1225,11 +1225,11 @@
 .settings-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
-  gap: 16px;
+  gap: 12px;
   align-items: end;
   max-width: 1180px;
-  margin: 0 auto 16px;
-  padding: 8px 2px 14px;
+  margin: 0 auto 12px;
+  padding: 6px 2px 12px;
   border-bottom: 1px solid var(--color-line);
   animation: settings-card-in var(--motion-panel) var(--ease-out-quint) both;
 }
@@ -1237,7 +1237,7 @@
 .settings-hero h1 {
   margin-top: 3px;
   color: var(--color-primary-strong);
-  font-size: clamp(1.35rem, 2vw, 1.85rem);
+  font-size: clamp(1.22rem, 1.7vw, 1.56rem);
   line-height: 1.1;
 }
 
@@ -1252,9 +1252,9 @@
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 2px 8px;
   align-items: center;
-  padding: 9px;
+  padding: 7px;
   border: 1px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--color-surface);
 }
 
@@ -1269,22 +1269,22 @@
 }
 
 .settings-metric strong {
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .settings-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
-  gap: 16px;
+  gap: 12px;
   max-width: 1180px;
   margin: 0 auto;
 }
 
 .settings-card {
   min-width: 0;
-  padding: 15px;
+  padding: 12px;
   border: 1px solid var(--color-line);
-  border-radius: 10px;
+  border-radius: 7px;
   background: var(--surface-panel);
   box-shadow: var(--shadow-panel);
   contain: layout paint;
@@ -1313,12 +1313,12 @@
 
 .settings-list span,
 .settings-status {
-  padding: 9px 10px;
+  padding: 7px 8px;
   border: 1px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--color-surface);
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
 }
 
 .settings-status {
@@ -1344,12 +1344,12 @@
 .security-row {
   justify-content: space-between;
   min-width: 0;
-  padding: 9px 10px;
+  padding: 7px 8px;
   border: 1px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--color-muted);
   background: var(--color-surface);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
 }
 
 .security-row svg {
