@@ -18,7 +18,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       theme={{
         token: {
           colorPrimary: '#4f46d8',
-          borderRadius: 6,
+          borderRadius: 5,
+          controlHeight: 30,
+          fontSize: 13,
           fontFamily:
             'Aptos, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
         },

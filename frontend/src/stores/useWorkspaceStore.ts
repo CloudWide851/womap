@@ -17,6 +17,7 @@ interface WorkspaceState {
   featurePreviews: FeatureAttributePreview[];
   setActiveTool: (tool: string) => void;
   notifyCommand: (command: WorkspaceCommand) => void;
+  showNotice: (notice: Omit<WorkspaceNotice, 'id'>) => void;
   selectLayer: (layerId: string) => void;
   openLayerInspector: (layerId: string) => void;
   openFeatureInspector: (layerId: string, featureId: string) => void;
@@ -268,6 +269,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   ...createInitialState(),
   setActiveTool: (tool) => set({ activeTool: tool, notice: createToolNotice(tool) }),
   notifyCommand: (command) => set({ notice: createNotice(commandNotices[command]) }),
+  showNotice: (notice) => set({ notice: createNotice(notice) }),
   selectLayer: (layerId) => set({ selectedLayerId: layerId }),
   openLayerInspector: (layerId) =>
     set({

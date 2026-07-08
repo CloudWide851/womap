@@ -15,11 +15,13 @@ import {
   Undo2,
   LogOut,
 } from 'lucide-react';
-import { memo } from 'react';
+import { Button, Checkbox, Popover, Radio } from 'antd';
+import { memo, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 
 import womapLogo from '../../../logo.svg';
 import { IconTooltipButton } from './IconTooltipButton';
+import { exportLayers } from '../services/api';
 import { formatRemainingTime, useAuthStore } from '../stores/useAuthStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
@@ -66,11 +68,120 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
   const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
+  const showNotice = useWorkspaceStore((state) => state.showNotice);
+  const layers = useWorkspaceStore((state) => state.layers);
   const mode = useAuthStore((state) => state.mode);
   const expiresAt = useAuthStore((state) => state.expiresAt);
   const now = useAuthStore((state) => state.now);
   const logout = useAuthStore((state) => state.logout);
   const remaining = expiresAt ? formatRemainingTime(expiresAt - now) : '--';
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'shp' | 'gdb'>('shp');
+  const [checkedLayerIds, setCheckedLayerIds] = useState<string[]>([]);
+  const backendLayerIds = useMemo(
+    () =>
+      checkedLayerIds
+        .map((layerId) => Number(layerId))
+        .filter((layerId) => Number.isInteger(layerId) && layerId > 0),
+    [checkedLayerIds],
+  );
+
+  const handleExportOpenChange = (open: boolean) => {
+    setExportOpen(open);
+    if (open && checkedLayerIds.length === 0) {
+      setCheckedLayerIds(layers.filter((layer) => layer.visible).map((layer) => layer.id));
+    }
+  };
+
+  const handleExport = async () => {
+    if (checkedLayerIds.length === 0) {
+      showNotice({
+        tone: 'warning',
+        title: '请选择导出图层',
+        detail: '至少勾选一个后端图层后再导出 SHP 或 GDB。',
+      });
+      return;
+    }
+    if (backendLayerIds.length === 0) {
+      showNotice({
+        tone: 'warning',
+        title: '暂无后端图层可导出',
+        detail: '当前工作台只有本地示例图层；导入或加载后端数据后才能生成 SHP/GDB 成果。',
+      });
+      return;
+    }
+
+    setExporting(true);
+    showNotice({
+      tone: 'info',
+      title: `正在导出 ${exportFormat.toUpperCase()}`,
+      detail: `已提交 ${backendLayerIds.length} 个后端图层，完成后会下载 zip 文件。`,
+    });
+
+    try {
+      const result = await exportLayers(exportFormat, backendLayerIds);
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+      showNotice({
+        tone: 'success',
+        title: `${exportFormat.toUpperCase()} 导出完成`,
+        detail: result.filename,
+      });
+    } catch (error) {
+      showNotice({
+        tone: 'warning',
+        title: `${exportFormat.toUpperCase()} 导出失败`,
+        detail: error instanceof Error ? error.message : '导出服务返回未知错误。',
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportPanel = (
+    <div className="export-popover" aria-label="导出设置">
+      <div className="export-popover-header">
+        <strong>导出成果</strong>
+        <span>选择后端图层与格式</span>
+      </div>
+      <Checkbox.Group
+        className="export-layer-list"
+        value={checkedLayerIds}
+        onChange={(values) => setCheckedLayerIds(values.map(String))}
+      >
+        {layers.map((layer) => (
+          <Checkbox key={layer.id} value={layer.id} className="export-layer-option">
+            <span>{layer.name}</span>
+            <em>{layer.geometryType}</em>
+          </Checkbox>
+        ))}
+      </Checkbox.Group>
+      <Radio.Group
+        className="export-format-toggle"
+        optionType="button"
+        buttonStyle="solid"
+        value={exportFormat}
+        onChange={(event) => setExportFormat(event.target.value)}
+      >
+        <Radio.Button value="shp">SHP</Radio.Button>
+        <Radio.Button value="gdb">GDB</Radio.Button>
+      </Radio.Group>
+      <div className="export-actions">
+        <Button size="small" onClick={() => setExportOpen(false)}>
+          取消
+        </Button>
+        <Button size="small" type="primary" loading={exporting} onClick={handleExport}>
+          导出 {exportFormat.toUpperCase()}
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <header className="top-toolbar">
@@ -92,12 +203,20 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
             icon={<Save size={17} />}
             onClick={() => notifyCommand('save-project')}
           />
-          <IconTooltipButton
-            className="tool-icon-button"
-            label="导出成果"
-            icon={<Download size={17} />}
-            onClick={() => notifyCommand('export-results')}
-          />
+          <Popover
+            trigger="click"
+            open={exportOpen}
+            onOpenChange={handleExportOpenChange}
+            content={exportPanel}
+            placement="bottomLeft"
+          >
+            <Button
+              className="tool-icon-button"
+              aria-label="导出成果"
+              title="导出成果"
+              icon={<Download size={17} />}
+            />
+          </Popover>
         </span>
 
         <span className="toolbar-cluster toolbar-cluster-edit" role="group" aria-label="编辑工具">

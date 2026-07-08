@@ -60,3 +60,20 @@ frontend:
 示例配置默认前端端口为 `5173`；本地 `config/settings.local.yaml` 可以改为其他端口，例如与本机 CORS 配置对齐的 `9173`。启动器会优先读取本地 YAML 中的 `server.host/port` 和 `frontend.dev_server.host/port`。
 
 启动器退出交互面板时会尽力关闭它启动的 API/Web 服务；外部占用同一端口的进程只会显示为 `listening`，不会被自动终止。
+
+## 导出能力
+
+后端提供 `POST /api/v1/exports`，支持将后端数据库中的真实图层导出为 `SHP` 或 `FileGDB` zip：
+
+```json
+{
+  "format": "shp",
+  "layer_ids": [1, 2]
+}
+```
+
+- `format` 可选 `shp` 或 `gdb`。
+- `SHP` 导出会为字段名生成 Shapefile 兼容短名，并在 zip 中写入 `field-map.json`。
+- `GDB` 指 Esri File Geodatabase 目录，最终以 zip 下载。
+- 导出依赖 `geopandas`、`pyogrio` 和底层 GDAL 驱动；驱动不可用时接口返回明确错误，不生成假文件。
+- 当前前端示例图层不是后端真实数据，只有加载到后端数据库的图层才会被导出。

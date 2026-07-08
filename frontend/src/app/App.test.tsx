@@ -1,11 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   useAuthStore.getState().reset();
   useWorkspaceStore.getState().reset();
   cleanup();
@@ -76,7 +78,7 @@ describe('App', () => {
     expect(screen.getByLabelText('退出登录')).toBeInTheDocument();
   });
 
-  it('reports stage-1 command feedback instead of leaving toolbar actions silent', async () => {
+  it('reports stage-1 command feedback instead of leaving unfinished actions silent', async () => {
     render(<App />);
     await loginToWorkbench();
 
@@ -85,9 +87,6 @@ describe('App', () => {
 
     fireEvent.click(screen.getByLabelText('保存项目'));
     expect(screen.getByRole('status', { name: /保存入口已标记/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByLabelText('导出成果'));
-    expect(screen.getByRole('status', { name: /导出入口已标记/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('撤销'));
     expect(screen.getByRole('status', { name: /暂无可撤销操作/ })).toBeInTheDocument();
@@ -101,6 +100,63 @@ describe('App', () => {
     fireEvent.click(screen.getByLabelText('移动'));
     expect(screen.getByRole('status', { name: /已切换到移动工具/ })).toBeInTheDocument();
     expect(screen.getByLabelText('当前工具 移动')).toBeInTheDocument();
+  });
+
+  it('opens a real export panel and refuses to fake local demo layers', async () => {
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.click(screen.getByLabelText('导出成果'));
+
+    expect(await screen.findByLabelText('导出设置')).toBeInTheDocument();
+    expect(screen.getByText('选择后端图层与格式')).toBeInTheDocument();
+    expect(screen.getByText('SHP')).toBeInTheDocument();
+    expect(screen.getByText('GDB')).toBeInTheDocument();
+    expect(screen.queryByText(/阶段 6/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/导出入口已标记/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 SHP' }));
+
+    expect(screen.getByRole('status', { name: /暂无后端图层可导出/ })).toBeInTheDocument();
+  });
+
+  it('submits selected backend layers for GDB export and reports the download', async () => {
+    const firstLayer = useWorkspaceStore.getState().layers[0];
+    useWorkspaceStore.setState({
+      selectedLayerId: '1',
+      layers: [{ ...firstLayer, id: '1', name: '后端地块', visible: true }],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(['zip'], { type: 'application/zip' }), {
+        status: 200,
+        headers: { 'content-disposition': 'attachment; filename="womap-export-gdb.zip"' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:womap-export'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.click(screen.getByLabelText('导出成果'));
+    fireEvent.click(await screen.findByRole('radio', { name: 'GDB' }));
+    fireEvent.click(screen.getByRole('button', { name: '导出 GDB' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(requestInit.body as string)).toEqual({
+      format: 'gdb',
+      layer_ids: [1],
+    });
+    expect(await screen.findByRole('status', { name: /GDB 导出完成/ })).toBeInTheDocument();
   });
 
   it('separates settings from the main workspace surface', async () => {
