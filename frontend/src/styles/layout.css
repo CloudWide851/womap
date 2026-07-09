@@ -358,11 +358,14 @@
 .layer-item,
 .basemap-option,
 .coordinate-submit.ant-btn,
-.job-item,
-.context-action-button,
-.map-feature-trigger,
-.attribute-close-button,
-.settings-metric {
+  .job-item,
+  .context-action-button,
+  .map-feature-trigger,
+  .feature-nav-item,
+  .attribute-close-button,
+  .login-instrument-reticle,
+  .login-instrument-scan,
+  .settings-metric {
   transition:
     transform var(--motion-base) var(--ease-out-quart),
     opacity var(--motion-base) var(--ease-out-quart);
@@ -371,10 +374,11 @@
 .tool-icon-button.ant-btn:hover,
 .panel-toggle-button:hover,
 .basemap-option:hover,
-.layer-item:hover,
-.context-action-button:hover,
-.map-feature-trigger:hover,
-.settings-metric:hover {
+  .layer-item:hover,
+  .feature-nav-item:hover,
+  .context-action-button:hover,
+  .map-feature-trigger:hover,
+  .settings-metric:hover {
   transform: translateY(-1px);
   box-shadow: 0 5px 14px oklch(28% 0.035 265 / 0.052);
 }
@@ -382,20 +386,21 @@
 .tool-icon-button.ant-btn:active,
 .panel-toggle-button:active,
 .basemap-option:active,
-.layer-item:active,
-.context-action-button:active,
-.map-feature-trigger:active {
+  .layer-item:active,
+  .feature-nav-item:active,
+  .context-action-button:active,
+  .map-feature-trigger:active {
   transform: translateY(0) scale(0.97);
   transition-duration: var(--motion-fast);
 }
 
 .workbench-body {
   display: grid;
-  grid-template-columns: clamp(226px, 17.5vw, 272px) minmax(540px, 1fr) clamp(238px, 18.5vw, 288px);
+  grid-template-columns: clamp(208px, 15vw, 246px) minmax(620px, 1fr) clamp(212px, 16vw, 252px);
   grid-template-areas: "layers map props";
   min-height: 0;
-  padding: 9px;
-  gap: 9px;
+  padding: 8px;
+  gap: 8px;
   animation: workbench-in var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -450,6 +455,8 @@
   padding-bottom: 9px;
   margin-bottom: 9px;
   border-bottom: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  content-visibility: auto;
+  contain-intrinsic-size: 120px;
   animation: panel-reveal var(--motion-panel) var(--ease-out-quint) both;
 }
 
@@ -502,6 +509,17 @@
 .panel-heading h2 {
   margin-top: 2px;
   font-size: 0.84rem;
+}
+
+.panel-heading-icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-primary);
+  background: color-mix(in oklch, var(--color-primary-soft) 68%, var(--color-surface));
 }
 
 .layer-list {
@@ -641,6 +659,93 @@
   height: 12px;
   inset-block-start: 3px;
   inset-inline-start: 3px;
+}
+
+.feature-nav-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 170px;
+}
+
+.feature-nav-list {
+  display: grid;
+  gap: 7px;
+}
+
+.feature-nav-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 10%, var(--color-line));
+  border-radius: 6px;
+  background: var(--color-surface);
+  contain: content;
+}
+
+.feature-nav-item.is-selected {
+  border-color: color-mix(in oklch, var(--color-primary) 42%, var(--color-line));
+  background: color-mix(in oklch, var(--color-primary-soft) 52%, var(--color-surface));
+  box-shadow:
+    inset 1px 0 0 var(--color-primary),
+    0 5px 13px oklch(28% 0.04 268 / 0.052);
+}
+
+.feature-nav-focus {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 18px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.feature-nav-code {
+  display: inline-grid;
+  min-height: 24px;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 22%, var(--color-line));
+  border-radius: 5px;
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+  font-size: 0.66rem;
+  font-weight: 820;
+}
+
+.feature-nav-main {
+  min-width: 0;
+}
+
+.feature-nav-main strong,
+.feature-nav-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feature-nav-main strong {
+  font-size: 0.74rem;
+}
+
+.feature-nav-main span {
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: 0.65rem;
+}
+
+.feature-nav-focus svg {
+  color: var(--color-primary);
+}
+
+.feature-nav-inspect.ant-btn {
+  min-width: 28px;
 }
 
 .map-shell {
@@ -1097,6 +1202,34 @@
   font-size: 0.69rem;
 }
 
+.context-feature-focus {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 24%, var(--color-line));
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--color-primary-soft) 48%, var(--color-surface));
+}
+
+.context-feature-focus strong,
+.context-feature-focus span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-feature-focus strong {
+  font-size: 0.75rem;
+}
+
+.context-feature-focus span {
+  color: var(--color-muted);
+  font-size: 0.66rem;
+}
+
 .context-metric-grid,
 .performance-grid {
   display: grid;
@@ -1319,6 +1452,8 @@
   background: var(--surface-panel);
   box-shadow: var(--shadow-panel);
   animation: surface-rise var(--motion-panel, 300ms) var(--ease-out-quint, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  overflow: hidden;
+  position: relative;
 }
 
 .security-row {
@@ -1343,6 +1478,116 @@
 .login-brand img {
   width: 138px;
   height: auto;
+}
+
+.login-instrument {
+  position: relative;
+  height: 118px;
+  margin: -2px 0 20px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 14%, var(--color-line));
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--color-surface) 96%, var(--color-blue-soft));
+  contain: paint;
+}
+
+.login-instrument::before,
+.login-instrument::after,
+.login-instrument-grid,
+.login-instrument-grid::before,
+.login-instrument-grid::after {
+  position: absolute;
+  pointer-events: none;
+  content: "";
+}
+
+.login-instrument::before {
+  inset: 13px;
+  border: 1px solid oklch(48% 0.118 276 / 0.12);
+  border-radius: 6px;
+}
+
+.login-instrument::after {
+  inset: 25px 44px;
+  border-right: 1px solid oklch(48% 0.118 276 / 0.16);
+  border-left: 1px solid oklch(48% 0.118 276 / 0.16);
+  transform: skewX(-12deg);
+}
+
+.login-instrument-grid {
+  inset: 28px 26px;
+  border-top: 1px solid oklch(48% 0.118 276 / 0.12);
+  border-bottom: 1px solid oklch(48% 0.118 276 / 0.12);
+}
+
+.login-instrument-grid::before {
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: oklch(48% 0.118 276 / 0.14);
+}
+
+.login-instrument-grid::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: oklch(48% 0.118 276 / 0.14);
+}
+
+.login-instrument-scan {
+  position: absolute;
+  top: 50%;
+  right: 17%;
+  left: 17%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  opacity: 0.62;
+  animation: login-scan 2400ms var(--ease-out-quart) infinite;
+}
+
+.login-instrument-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid oklch(48% 0.118 276 / 0.18);
+  border-radius: 50%;
+  color: var(--color-primary);
+  background: oklch(100% 0 0 / 0.72);
+  animation: reticle-lock 1800ms var(--ease-out-quint) infinite;
+}
+
+.login-instrument-chip,
+.login-instrument-code {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-primary-strong);
+  background: var(--color-surface);
+  font-size: 0.66rem;
+  font-weight: 820;
+  letter-spacing: 0;
+}
+
+.login-instrument-chip {
+  top: 9px;
+  left: 9px;
+  gap: 5px;
+}
+
+.login-instrument-code {
+  right: 9px;
+  bottom: 9px;
 }
 
 .login-panel-heading {
@@ -1739,6 +1984,31 @@
   }
 }
 
+@keyframes login-scan {
+  0% {
+    opacity: 0;
+    transform: translateY(-34px) scaleX(0.64);
+  }
+  18%,
+  76% {
+    opacity: 0.62;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(34px) scaleX(1);
+  }
+}
+
+@keyframes reticle-lock {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  46% {
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+}
+
 @keyframes dropdown-pop {
   from {
     opacity: 0;
@@ -1886,6 +2156,10 @@
 
   .login-panel {
     padding: 16px;
+  }
+
+  .login-instrument {
+    height: 96px;
   }
 
   .session-mode-group {

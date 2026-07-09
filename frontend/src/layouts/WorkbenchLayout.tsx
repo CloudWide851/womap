@@ -4,6 +4,7 @@ import { FieldPanel } from '../features/fields/FieldPanel';
 import { JobPanel } from '../features/jobs/JobPanel';
 import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
+import { FeatureNavigator } from '../features/map/FeatureNavigator';
 import { MapToolsPanel } from '../features/map/MapToolsPanel';
 import { PerformancePanel } from '../features/performance/PerformancePanel';
 import { PropertiesPanel } from '../features/properties/PropertiesPanel';
@@ -27,6 +28,7 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
           {!swipeFocused && (
             <>
               {panels.layers && <LayerPanel />}
+              {panels.layers && <FeatureNavigator />}
               <MapToolsPanel />
               {panels.jobs && <JobPanel />}
             </>

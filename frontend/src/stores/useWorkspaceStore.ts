@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import type {
   AttributeInspectorTarget,
+  FeatureFocusRequest,
   FeatureAttributePreview,
   WorkspaceCommand,
   WorkspaceNotice,
@@ -13,6 +14,8 @@ interface WorkspaceState {
   activeTool: string;
   workspaceMode: WorkspaceMode;
   selectedLayerId: string | null;
+  selectedFeatureId: string | null;
+  featureFocusRequest: FeatureFocusRequest | null;
   inspectorTarget: AttributeInspectorTarget | null;
   notice: WorkspaceNotice | null;
   layers: WorkspaceLayer[];
@@ -22,6 +25,7 @@ interface WorkspaceState {
   notifyCommand: (command: WorkspaceCommand) => void;
   showNotice: (notice: Omit<WorkspaceNotice, 'id'>) => void;
   selectLayer: (layerId: string) => void;
+  focusFeature: (featureId: string) => void;
   openLayerInspector: (layerId: string) => void;
   openFeatureInspector: (layerId: string, featureId: string) => void;
   closeInspector: () => void;
@@ -114,6 +118,14 @@ function createToolNotice(tool: string): WorkspaceNotice {
 
 function createWorkspaceModeNotice(mode: WorkspaceMode): WorkspaceNotice {
   return createNotice(workspaceModeNotices[mode]);
+}
+
+function createFeatureFocusNotice(feature: FeatureAttributePreview): WorkspaceNotice {
+  return createNotice({
+    tone: 'info',
+    title: `已定位 ${feature.displayCode}`,
+    detail: `${feature.title} 已在地图中居中，属性入口保持可用。`,
+  });
 }
 
 function createInitialLayers(): WorkspaceLayer[] {
@@ -253,11 +265,13 @@ function createFeaturePreviews(): FeatureAttributePreview[] {
     {
       id: 'feature-boundary-102',
       layerId: 'project-boundary',
+      displayCode: 'B-102',
       title: '边界图斑 102',
       geometryType: 'Polygon',
       area: '28.64 ha',
       perimeter: '3.42 km',
       bounds: '113.21,23.08,113.33,23.18',
+      mapBounds: [113.21, 23.08, 113.33, 23.18],
       properties: {
         项目编号: 'WM-2026-102',
         用地类型: '建设用地',
@@ -267,18 +281,55 @@ function createFeaturePreviews(): FeatureAttributePreview[] {
       },
     },
     {
+      id: 'feature-boundary-108',
+      layerId: 'project-boundary',
+      displayCode: 'B-108',
+      title: '边界图斑 108',
+      geometryType: 'Polygon',
+      area: '11.92 ha',
+      perimeter: '1.86 km',
+      bounds: '113.30,23.16,113.38,23.22',
+      mapBounds: [113.3, 23.16, 113.38, 23.22],
+      properties: {
+        项目编号: 'WM-2026-108',
+        用地类型: '农用地',
+        数据来源: '示例工作空间',
+        已索引: true,
+        更新批次: 4,
+      },
+    },
+    {
       id: 'feature-point-018',
       layerId: 'survey-points',
+      displayCode: 'P-018',
       title: '巡查点位 018',
       geometryType: 'Point',
       area: '-',
       perimeter: '-',
       bounds: '113.27,23.13,113.27,23.13',
+      mapBounds: [113.27, 23.13, 113.27, 23.13],
       properties: {
         点位编号: 'P-018',
         巡查状态: '待复核',
         负责人: '现场组',
         已同步: false,
+      },
+    },
+    {
+      id: 'feature-point-031',
+      layerId: 'survey-points',
+      displayCode: 'P-031',
+      title: '巡查点位 031',
+      geometryType: 'Point',
+      area: '-',
+      perimeter: '-',
+      bounds: '113.34,23.2,113.34,23.2',
+      mapBounds: [113.34, 23.2, 113.34, 23.2],
+      properties: {
+        点位编号: 'P-031',
+        巡查状态: '已复核',
+        负责人: '资料组',
+        已同步: true,
       },
     },
   ];
@@ -289,6 +340,8 @@ function createInitialState() {
     activeTool: 'select',
     workspaceMode: 'browse' as WorkspaceMode,
     selectedLayerId: 'project-boundary',
+    selectedFeatureId: 'feature-boundary-102',
+    featureFocusRequest: null,
     inspectorTarget: null,
     notice: null,
     layers: createInitialLayers(),
@@ -306,17 +359,51 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     }),
   notifyCommand: (command) => set({ notice: createNotice(commandNotices[command]) }),
   showNotice: (notice) => set({ notice: createNotice(notice) }),
-  selectLayer: (layerId) => set({ selectedLayerId: layerId }),
+  selectLayer: (layerId) =>
+    set((state) => {
+      const firstFeature = state.featurePreviews.find((feature) => feature.layerId === layerId);
+      return {
+        selectedLayerId: layerId,
+        selectedFeatureId: firstFeature?.id ?? null,
+      };
+    }),
+  focusFeature: (featureId) =>
+    set((state) => {
+      const feature = state.featurePreviews.find((item) => item.id === featureId);
+      if (!feature) {
+        return {
+          notice: createNotice({
+            tone: 'warning',
+            title: '图斑不可定位',
+            detail: '当前示例工作空间中没有找到该图斑。',
+          }),
+        };
+      }
+      return {
+        selectedLayerId: feature.layerId,
+        selectedFeatureId: feature.id,
+        featureFocusRequest: {
+          featureId: feature.id,
+          sequence: (state.featureFocusRequest?.sequence ?? 0) + 1,
+        },
+        notice: createFeatureFocusNotice(feature),
+      };
+    }),
   openLayerInspector: (layerId) =>
     set({
       selectedLayerId: layerId,
       inspectorTarget: { kind: 'layer', layerId },
     }),
   openFeatureInspector: (layerId, featureId) =>
-    set({
+    set((state) => ({
       selectedLayerId: layerId,
+      selectedFeatureId: featureId,
+      featureFocusRequest: {
+        featureId,
+        sequence: (state.featureFocusRequest?.sequence ?? 0) + 1,
+      },
       inspectorTarget: { kind: 'feature', layerId, featureId },
-    }),
+    })),
   closeInspector: () => set({ inspectorTarget: null }),
   toggleLayer: (layerId) =>
     set((state) => ({

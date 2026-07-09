@@ -1,4 +1,4 @@
-import { LockKeyhole, ShieldCheck, TimerReset } from 'lucide-react';
+import { Crosshair, LockKeyhole, ScanLine, ShieldCheck, TimerReset } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
 import womapLogo from '../../../logo.svg';
@@ -29,6 +29,19 @@ export function LoginPage() {
       <section className="login-panel" aria-label="本地登录">
         <div className="login-brand">
           <img src={womapLogo} alt="WOMAP" />
+        </div>
+
+        <div className="login-instrument" role="img" aria-label="测绘扫描状态">
+          <span className="login-instrument-grid" />
+          <span className="login-instrument-scan" />
+          <span className="login-instrument-reticle">
+            <Crosshair size={34} aria-hidden="true" />
+          </span>
+          <span className="login-instrument-chip">
+            <ScanLine size={14} aria-hidden="true" />
+            LOCAL
+          </span>
+          <span className="login-instrument-code">EPSG:3857</span>
         </div>
 
         <div className="login-panel-heading">

@@ -32,6 +32,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '进入工作台' })).toBeInTheDocument();
     expect(screen.getByAltText('WOMAP')).toBeInTheDocument();
+    expect(screen.getByLabelText('测绘扫描状态')).toBeInTheDocument();
     expect(screen.getByText('默认账号 local-admin')).toBeInTheDocument();
     expect(screen.getByText('密码不少于 15 位即可进入本地工作台')).toBeInTheDocument();
     expect(screen.queryByLabelText('工作台预览')).not.toBeInTheDocument();
@@ -67,6 +68,7 @@ describe('App', () => {
     expect(screen.queryByText('WOMAP')).not.toBeInTheDocument();
     expect(screen.queryByText('图斑工坊')).not.toBeInTheDocument();
     expect(screen.getByText('工作空间')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '定位序列' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '地图工具' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '字段概览' })).toBeInTheDocument();
     expect(screen.getAllByText('性能').length).toBeGreaterThan(0);
@@ -153,6 +155,26 @@ describe('App', () => {
     fireEvent.click(screen.getByLabelText('移动'));
     expect(screen.getByRole('status', { name: /已切换到移动工具/ })).toBeInTheDocument();
     expect(screen.getByLabelText('当前工具 移动')).toBeInTheDocument();
+  });
+
+  it('focuses sample features from the feature navigator', async () => {
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.click(screen.getByRole('button', { name: '定位 边界图斑 108' }));
+
+    expect(useWorkspaceStore.getState().selectedFeatureId).toBe('feature-boundary-108');
+    expect(useWorkspaceStore.getState().featureFocusRequest).toMatchObject({
+      featureId: 'feature-boundary-108',
+      sequence: 1,
+    });
+    expect(screen.getByRole('status', { name: /已定位 B-108/ })).toBeInTheDocument();
+    expect(screen.getAllByText('B-108').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('边界图斑 108').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByLabelText('查看 边界图斑 108 属性')[0]);
+
+    expect(await screen.findByRole('dialog', { name: '边界图斑 108' })).toBeInTheDocument();
   });
 
   it('opens a real export panel and refuses to fake local demo layers', async () => {
@@ -316,7 +338,7 @@ describe('App', () => {
     fireEvent.click(screen.getByLabelText('关闭属性检查器'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
-    fireEvent.click(screen.getByLabelText('P-102 查看示例图斑属性'));
+    fireEvent.click(screen.getByLabelText('B-102 查看示例图斑属性'));
 
     expect(await screen.findByRole('dialog', { name: '边界图斑 102' })).toBeInTheDocument();
     expect(screen.getAllByText('项目编号').length).toBeGreaterThan(0);

@@ -1,5 +1,5 @@
 import { Empty, Tag, Tooltip } from 'antd';
-import { BoxSelect, Database, PanelRightOpen, Ruler, ScanSearch } from 'lucide-react';
+import { BoxSelect, Crosshair, Database, PanelRightOpen, Ruler, ScanSearch } from 'lucide-react';
 import { memo } from 'react';
 import type { ReactNode } from 'react';
 
@@ -26,8 +26,12 @@ const SummaryMetric = memo(function SummaryMetric({ icon, label, value }: Summar
 export function PropertiesPanel() {
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
+  const selectedFeatureId = useWorkspaceStore((state) => state.selectedFeatureId);
+  const featurePreviews = useWorkspaceStore((state) => state.featurePreviews);
   const openLayerInspector = useWorkspaceStore((state) => state.openLayerInspector);
+  const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
   const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
+  const selectedFeature = featurePreviews.find((feature) => feature.id === selectedFeatureId);
 
   return (
     <section className="panel-section properties-panel-section">
@@ -59,6 +63,22 @@ export function PropertiesPanel() {
               {selectedLayer.visible ? '显示' : '隐藏'}
             </Tag>
           </div>
+          {selectedFeature && (
+            <div className="context-feature-focus">
+              <span className="feature-nav-code">{selectedFeature.displayCode}</span>
+              <div>
+                <strong>{selectedFeature.title}</strong>
+                <span>{selectedFeature.area === '-' ? selectedFeature.geometryType : selectedFeature.area}</span>
+              </div>
+              <IconTooltipButton
+                size="small"
+                className="context-action-button"
+                label={`查看 ${selectedFeature.title} 属性`}
+                icon={<Crosshair size={15} />}
+                onClick={() => openFeatureInspector(selectedFeature.layerId, selectedFeature.id)}
+              />
+            </div>
+          )}
           <div className="context-metric-grid">
             <SummaryMetric
               icon={<Database size={16} aria-hidden="true" />}

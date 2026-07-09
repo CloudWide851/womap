@@ -47,12 +47,19 @@ export interface WorkspaceNotice {
 export interface FeatureAttributePreview {
   id: string;
   layerId: string;
+  displayCode: string;
   title: string;
   geometryType: GeometryType;
   area: string;
   perimeter: string;
   bounds: string;
+  mapBounds: [number, number, number, number];
   properties: Record<string, string | number | boolean>;
+}
+
+export interface FeatureFocusRequest {
+  featureId: string;
+  sequence: number;
 }
 
 export interface ToolAction {
