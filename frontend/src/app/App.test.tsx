@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useMapStore } from '../stores/useMapStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useAuthStore.getState().reset();
+  useMapStore.getState().reset();
   useWorkspaceStore.getState().reset();
   cleanup();
 });
@@ -63,6 +65,7 @@ describe('App', () => {
     expect(screen.queryByText('WOMAP')).not.toBeInTheDocument();
     expect(screen.queryByText('图斑工坊')).not.toBeInTheDocument();
     expect(screen.getByText('工作空间')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '地图工具' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '字段概览' })).toBeInTheDocument();
     expect(screen.getAllByText('底图').length).toBeGreaterThan(0);
     expect(screen.getAllByText('性能').length).toBeGreaterThan(0);
@@ -76,6 +79,54 @@ describe('App', () => {
     expect(screen.getByLabelText('打开设置')).toBeInTheDocument();
     expect(screen.getByLabelText(/当前短会话/)).toBeInTheDocument();
     expect(screen.getByLabelText('退出登录')).toBeInTheDocument();
+  });
+
+  it('converts coordinates from the map tools panel', async () => {
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.change(screen.getByLabelText('坐标 X 或经度'), {
+      target: { value: '113.2644' },
+    });
+    fireEvent.change(screen.getByLabelText('坐标 Y 或纬度'), {
+      target: { value: '23.1291' },
+    });
+    fireEvent.change(screen.getByLabelText('目标坐标系'), {
+      target: { value: 'EPSG:3857' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '转换坐标' }));
+
+    expect(
+      screen.getByRole('status', { name: /坐标转换结果 12608535\.33, 2647638\.58/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /坐标转换完成/ })).toBeInTheDocument();
+  });
+
+  it('enables two-period imagery swipe controls', async () => {
+    render(<App />);
+    await loginToWorkbench();
+
+    const swipeSwitch = screen.getByRole('switch', { name: '启用两期影像卷帘' });
+    fireEvent.click(swipeSwitch);
+    fireEvent.change(screen.getByLabelText('前期底图'), {
+      target: { value: 'amap-vector' },
+    });
+    fireEvent.change(screen.getByLabelText('后期底图'), {
+      target: { value: 'tencent-vector' },
+    });
+    fireEvent.change(screen.getByLabelText('卷帘位置'), {
+      target: { value: '64' },
+    });
+
+    expect(swipeSwitch).toBeChecked();
+    expect(screen.getByText('位置 64%')).toBeInTheDocument();
+    expect(screen.getByText('卷帘 64%')).toBeInTheDocument();
+    expect(useMapStore.getState().imagerySwipe).toMatchObject({
+      enabled: true,
+      beforeBasemapId: 'amap-vector',
+      afterBasemapId: 'tencent-vector',
+      position: 64,
+    });
   });
 
   it('reports stage-1 command feedback instead of leaving unfinished actions silent', async () => {

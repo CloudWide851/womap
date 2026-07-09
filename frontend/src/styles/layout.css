@@ -245,6 +245,7 @@
 .panel-toggle-button,
 .layer-item,
 .basemap-option,
+.coordinate-submit.ant-btn,
 .job-item,
 .context-action-button,
 .map-feature-trigger,
@@ -603,6 +604,19 @@
   cursor: not-allowed;
 }
 
+.map-swipe-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 1px;
+  background: oklch(28% 0.08 270 / 0.72);
+  box-shadow:
+    0 0 0 1px oklch(100% 0 0 / 0.72),
+    0 0 0 2px oklch(28% 0.08 270 / 0.08);
+  pointer-events: none;
+}
+
 .basemap-list {
   display: grid;
   grid-template-columns: 1fr;
@@ -636,6 +650,143 @@
   background: var(--surface-panel-alt);
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+.map-tools-panel-section {
+  display: grid;
+  gap: 8px;
+}
+
+.compact-heading {
+  margin-bottom: 0;
+}
+
+.compact-heading svg {
+  color: var(--color-primary);
+}
+
+.map-tool-block {
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid color-mix(in oklch, var(--color-line-strong) 8%, var(--color-line));
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+.tool-block-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary-strong);
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.tool-block-title svg {
+  color: var(--color-primary);
+}
+
+.coordinate-grid,
+.swipe-select-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.coordinate-grid label,
+.swipe-select-grid label,
+.swipe-range {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.coordinate-grid label span,
+.swipe-select-grid label span,
+.swipe-range span,
+.tool-switch-row span {
+  color: var(--color-muted);
+  font-size: 0.64rem;
+  font-weight: 720;
+}
+
+.coordinate-grid input,
+.coordinate-grid select,
+.swipe-select-grid select {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  font-size: 0.72rem;
+  outline: none;
+}
+
+.coordinate-grid input:focus-visible,
+.coordinate-grid select:focus-visible,
+.swipe-select-grid select:focus-visible,
+.tool-switch-row input:focus-visible,
+.swipe-range input:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px oklch(48% 0.118 276 / 0.1);
+}
+
+.coordinate-submit.ant-btn {
+  justify-self: start;
+  min-height: 27px;
+  padding-inline: 9px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+}
+
+.coordinate-message,
+.coordinate-result {
+  display: grid;
+  gap: 2px;
+  padding: 6px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--surface-panel-alt);
+  font-size: 0.68rem;
+}
+
+.coordinate-message.is-error {
+  border-color: color-mix(in oklch, var(--color-rose) 32%, var(--color-line));
+  color: var(--color-rose);
+  background: oklch(96% 0.018 24);
+}
+
+.coordinate-result span {
+  color: var(--color-muted);
+}
+
+.coordinate-result strong {
+  overflow-wrap: anywhere;
+  color: var(--color-primary-strong);
+  font-size: 0.72rem;
+}
+
+.tool-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.tool-switch-row input {
+  width: 34px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.swipe-range input {
+  width: 100%;
+  accent-color: var(--color-primary);
 }
 
 .field-panel-section .panel-heading {
@@ -1517,6 +1668,11 @@
     bottom: 12px;
   }
 
+  .coordinate-grid,
+  .swipe-select-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .status-bar {
     flex-wrap: wrap;
     gap: 8px 14px;
@@ -1583,7 +1739,9 @@
 
   .settings-metrics-grid,
   .context-metric-grid,
-  .performance-grid {
+  .performance-grid,
+  .coordinate-grid,
+  .swipe-select-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1605,7 +1763,11 @@
   .basemap-option,
   .layer-summary-button,
   .context-action-button,
-  .map-feature-trigger {
+  .map-feature-trigger,
+  .coordinate-grid input,
+  .coordinate-grid select,
+  .swipe-select-grid select,
+  .tool-switch-row {
     min-height: 40px;
   }
 }

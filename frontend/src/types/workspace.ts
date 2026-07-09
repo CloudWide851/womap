@@ -6,6 +6,7 @@ export type SessionMode = 'short' | 'long';
 export type WorkspaceFieldType = 'string' | 'number' | 'boolean' | 'date';
 export type WorkspaceNoticeTone = 'info' | 'success' | 'warning';
 export type WorkspaceCommand = 'import-data' | 'save-project' | 'export-results' | 'undo' | 'redo' | 'add-layer';
+export type CoordinateCrs = 'EPSG:4326' | 'EPSG:3857' | 'GCJ-02' | 'BD-09';
 
 export interface AttributeInspectorTarget {
   kind: AttributeInspectorKind;
@@ -77,6 +78,38 @@ export interface BasemapProvider {
   apiKeyConfigured: boolean;
 }
 
+export interface CoordinateConversionInput {
+  x: string;
+  y: string;
+  source: CoordinateCrs;
+  target: CoordinateCrs;
+}
+
+export interface CoordinateConversionResult {
+  source: CoordinateCrs;
+  target: CoordinateCrs;
+  x: number;
+  y: number;
+  formattedX: string;
+  formattedY: string;
+  xLabel: string;
+  yLabel: string;
+  targetLabel: string;
+}
+
+export interface CoordinateConversionState {
+  input: CoordinateConversionInput;
+  result: CoordinateConversionResult | null;
+  error: string | null;
+}
+
+export interface ImagerySwipeState {
+  enabled: boolean;
+  beforeBasemapId: string;
+  afterBasemapId: string;
+  position: number;
+}
+
 export interface PanelLayoutSettings {
   layers: boolean;
   basemaps: boolean;
@@ -103,6 +136,8 @@ export interface MapRuntimeState {
   scale: string;
   crs: string;
   selectedBasemapId: string;
+  coordinateConversion: CoordinateConversionState;
+  imagerySwipe: ImagerySwipeState;
 }
 
 export interface JobState {

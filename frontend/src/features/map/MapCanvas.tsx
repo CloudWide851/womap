@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
+import { getRenderPixel } from 'ol/render';
+import type RenderEvent from 'ol/render/Event';
 import OSM from 'ol/source/OSM';
 import XYZ from 'ol/source/XYZ';
 
@@ -11,6 +13,8 @@ import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import type { BasemapProvider } from '../../types/workspace';
+
+type BasemapSource = OSM | XYZ;
 
 function buildProviderUrls(provider: BasemapProvider): string[] | undefined {
   if (!provider.urlTemplate) {
@@ -36,11 +40,29 @@ function createBasemapSource(provider?: BasemapProvider) {
   });
 }
 
+function canClipCanvas(
+  context: RenderEvent['context'],
+): context is CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
+  return Boolean(
+    context &&
+      'save' in context &&
+      'restore' in context &&
+      'beginPath' in context &&
+      'rect' in context &&
+      'clip' in context,
+  );
+}
+
 export function MapCanvas() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<Map | null>(null);
+  const baseLayerRef = useRef<TileLayer<BasemapSource> | null>(null);
+  const swipeLayerRef = useRef<TileLayer<BasemapSource> | null>(null);
   const selectedBasemapRef = useRef<BasemapProvider | undefined>(undefined);
+  const basemapsRef = useRef<BasemapProvider[]>([]);
+  const imagerySwipeRef = useRef(useMapStore.getState().imagerySwipe);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
+  const imagerySwipe = useMapStore((state) => state.imagerySwipe);
   const basemaps = useSettingsStore((state) => state.basemaps);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
@@ -48,7 +70,20 @@ export function MapCanvas() {
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
   );
+  const beforeBasemap = useMemo(
+    () => basemaps.find((provider) => provider.id === imagerySwipe.beforeBasemapId) ?? selectedBasemap,
+    [basemaps, imagerySwipe.beforeBasemapId, selectedBasemap],
+  );
+  const afterBasemap = useMemo(
+    () => basemaps.find((provider) => provider.id === imagerySwipe.afterBasemapId) ?? selectedBasemap,
+    [basemaps, imagerySwipe.afterBasemapId, selectedBasemap],
+  );
   selectedBasemapRef.current = selectedBasemap;
+  basemapsRef.current = basemaps;
+  imagerySwipeRef.current = imagerySwipe;
+  const activeBasemapLabel = imagerySwipe.enabled
+    ? `${beforeBasemap?.name ?? 'OSM'} / ${afterBasemap?.name ?? 'OSM'}`
+    : selectedBasemap?.name ?? 'OSM';
   const previewFeature =
     selectedLayerId === 'survey-points'
       ? { id: 'feature-point-018', label: 'P-018' }
@@ -66,12 +101,26 @@ export function MapCanvas() {
         if (!mapRef.current) {
           return;
         }
-        const baseLayer = new TileLayer({
-          source: createBasemapSource(selectedBasemapRef.current),
+        const currentSwipe = imagerySwipeRef.current;
+        const currentBasemaps = basemapsRef.current;
+        const initialBeforeBasemap =
+          currentBasemaps.find((provider) => provider.id === currentSwipe.beforeBasemapId) ??
+          selectedBasemapRef.current;
+        const initialAfterBasemap =
+          currentBasemaps.find((provider) => provider.id === currentSwipe.afterBasemapId) ??
+          selectedBasemapRef.current;
+        const baseLayer = new TileLayer<BasemapSource>({
+          source: createBasemapSource(currentSwipe.enabled ? initialBeforeBasemap : selectedBasemapRef.current),
         });
+        const swipeLayer = new TileLayer<BasemapSource>({
+          source: createBasemapSource(initialAfterBasemap),
+          visible: currentSwipe.enabled,
+        });
+        baseLayerRef.current = baseLayer;
+        swipeLayerRef.current = swipeLayer;
         map = new Map({
           target: mapRef.current,
-          layers: [baseLayer],
+          layers: [baseLayer, swipeLayer],
           view: new View({
             center: [12608500, 2644100],
             zoom: 10,
@@ -89,17 +138,71 @@ export function MapCanvas() {
       }
       map?.setTarget(undefined);
       mapInstanceRef.current = null;
+      baseLayerRef.current = null;
+      swipeLayerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) {
+    const baseLayer = baseLayerRef.current;
+    const swipeLayer = swipeLayerRef.current;
+    if (!map || !baseLayer || !swipeLayer) {
       return;
     }
-    const baseLayer = map.getLayers().item(0) as TileLayer<OSM | XYZ>;
-    baseLayer.setSource(createBasemapSource(selectedBasemap));
-  }, [selectedBasemap]);
+    baseLayer.setSource(createBasemapSource(imagerySwipe.enabled ? beforeBasemap : selectedBasemap));
+    swipeLayer.setSource(createBasemapSource(afterBasemap));
+    swipeLayer.setVisible(imagerySwipe.enabled);
+    map.render();
+  }, [afterBasemap, beforeBasemap, imagerySwipe.enabled, selectedBasemap]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const swipeLayer = swipeLayerRef.current;
+    if (!map || !swipeLayer || !imagerySwipe.enabled) {
+      return;
+    }
+
+    const handlePreRender = (event: RenderEvent) => {
+      const context = event.context;
+      if (!canClipCanvas(context)) {
+        return;
+      }
+      const mapSize = map.getSize();
+      if (!mapSize) {
+        return;
+      }
+      const width = Math.round((mapSize[0] * imagerySwipe.position) / 100);
+      const topLeft = getRenderPixel(event, [width, 0]);
+      const bottomRight = getRenderPixel(event, mapSize);
+      context.save();
+      context.beginPath();
+      context.rect(
+        topLeft[0],
+        topLeft[1],
+        bottomRight[0] - topLeft[0],
+        bottomRight[1] - topLeft[1],
+      );
+      context.clip();
+    };
+
+    const handlePostRender = (event: RenderEvent) => {
+      const context = event.context;
+      if (canClipCanvas(context)) {
+        context.restore();
+      }
+    };
+
+    swipeLayer.on('prerender', handlePreRender);
+    swipeLayer.on('postrender', handlePostRender);
+    map.render();
+
+    return () => {
+      swipeLayer.un('prerender', handlePreRender);
+      swipeLayer.un('postrender', handlePostRender);
+      map.render();
+    };
+  }, [imagerySwipe.enabled, imagerySwipe.position]);
 
   return (
     <main className="map-shell">
@@ -108,9 +211,17 @@ export function MapCanvas() {
         <Tooltip title="当前底图">
           <span>
             <MapPinned size={14} aria-hidden="true" />
-            {selectedBasemap?.name ?? 'OSM'}
+            {activeBasemapLabel}
           </span>
         </Tooltip>
+        {imagerySwipe.enabled && (
+          <Tooltip title="卷帘位置">
+            <span>
+              <Layers3 size={14} aria-hidden="true" />
+              卷帘 {imagerySwipe.position}%
+            </span>
+          </Tooltip>
+        )}
         <Tooltip title="视口查询策略">
           <span>
             <Layers3 size={14} aria-hidden="true" />
@@ -135,6 +246,13 @@ export function MapCanvas() {
           {previewFeature.label}
         </button>
       </div>
+      {imagerySwipe.enabled && (
+        <div
+          className="map-swipe-divider"
+          style={{ left: `${imagerySwipe.position}%` }}
+          aria-hidden="true"
+        />
+      )}
     </main>
   );
 }
