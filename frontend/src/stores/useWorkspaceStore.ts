@@ -6,16 +6,19 @@ import type {
   WorkspaceCommand,
   WorkspaceNotice,
   WorkspaceLayer,
+  WorkspaceMode,
 } from '../types/workspace';
 
 interface WorkspaceState {
   activeTool: string;
+  workspaceMode: WorkspaceMode;
   selectedLayerId: string | null;
   inspectorTarget: AttributeInspectorTarget | null;
   notice: WorkspaceNotice | null;
   layers: WorkspaceLayer[];
   featurePreviews: FeatureAttributePreview[];
   setActiveTool: (tool: string) => void;
+  setWorkspaceMode: (mode: WorkspaceMode) => void;
   notifyCommand: (command: WorkspaceCommand) => void;
   showNotice: (notice: Omit<WorkspaceNotice, 'id'>) => void;
   selectLayer: (layerId: string) => void;
@@ -70,6 +73,29 @@ const toolLabels: Record<string, string> = {
   merge: '合并',
 };
 
+const workspaceModeNotices: Record<WorkspaceMode, Omit<WorkspaceNotice, 'id'>> = {
+  browse: {
+    tone: 'info',
+    title: '已进入浏览查看模式',
+    detail: '地图保持普通查看状态，可切换图层、底图和查看属性。',
+  },
+  edit: {
+    tone: 'info',
+    title: '已进入图斑编辑模式',
+    detail: '当前先开放编辑工具态反馈；真实图斑编辑会在轻量编辑阶段接入。',
+  },
+  swipe: {
+    tone: 'info',
+    title: '已进入两期影像卷帘模式',
+    detail: '左右侧栏已默认收缩，地图聚焦显示前后期底图对比。',
+  },
+  inspect: {
+    tone: 'info',
+    title: '已进入属性查看模式',
+    detail: '通过图层或图斑入口打开属性检查器，右侧仍保持轻量摘要。',
+  },
+};
+
 let noticeSequence = 0;
 
 function createNotice(notice: Omit<WorkspaceNotice, 'id'>): WorkspaceNotice {
@@ -84,6 +110,10 @@ function createToolNotice(tool: string): WorkspaceNotice {
     title: `已切换到${label}工具`,
     detail: '阶段 1 先完成工具态反馈；真实地图编辑会在轻量编辑阶段接入。',
   });
+}
+
+function createWorkspaceModeNotice(mode: WorkspaceMode): WorkspaceNotice {
+  return createNotice(workspaceModeNotices[mode]);
 }
 
 function createInitialLayers(): WorkspaceLayer[] {
@@ -257,6 +287,7 @@ function createFeaturePreviews(): FeatureAttributePreview[] {
 function createInitialState() {
   return {
     activeTool: 'select',
+    workspaceMode: 'browse' as WorkspaceMode,
     selectedLayerId: 'project-boundary',
     inspectorTarget: null,
     notice: null,
@@ -268,6 +299,11 @@ function createInitialState() {
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   ...createInitialState(),
   setActiveTool: (tool) => set({ activeTool: tool, notice: createToolNotice(tool) }),
+  setWorkspaceMode: (mode) =>
+    set({
+      workspaceMode: mode,
+      notice: createWorkspaceModeNotice(mode),
+    }),
   notifyCommand: (command) => set({ notice: createNotice(commandNotices[command]) }),
   showNotice: (notice) => set({ notice: createNotice(notice) }),
   selectLayer: (layerId) => set({ selectedLayerId: layerId }),

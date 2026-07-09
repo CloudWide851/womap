@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useMapStore } from '../stores/useMapStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 afterEach(() => {
@@ -11,6 +12,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   useAuthStore.getState().reset();
   useMapStore.getState().reset();
+  useSettingsStore.getState().reset();
   useWorkspaceStore.getState().reset();
   cleanup();
 });
@@ -67,15 +69,18 @@ describe('App', () => {
     expect(screen.getByText('工作空间')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '地图工具' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '字段概览' })).toBeInTheDocument();
-    expect(screen.getAllByText('底图').length).toBeGreaterThan(0);
     expect(screen.getAllByText('性能').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('导入数据')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '文件操作' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '工作模式' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '工作模式' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '地图底图' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '地图底图' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '编辑工具' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '历史操作' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '工作台状态' })).toBeInTheDocument();
     expect(screen.getByLabelText('新增图层')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '高德矢量' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '高德矢量' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('打开设置')).toBeInTheDocument();
     expect(screen.getByLabelText(/当前短会话/)).toBeInTheDocument();
     expect(screen.getByLabelText('退出登录')).toBeInTheDocument();
@@ -91,9 +96,6 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('坐标 Y 或纬度'), {
       target: { value: '23.1291' },
     });
-    fireEvent.change(screen.getByLabelText('目标坐标系'), {
-      target: { value: 'EPSG:3857' },
-    });
     fireEvent.click(screen.getByRole('button', { name: '转换坐标' }));
 
     expect(
@@ -106,27 +108,27 @@ describe('App', () => {
     render(<App />);
     await loginToWorkbench();
 
-    const swipeSwitch = screen.getByRole('switch', { name: '启用两期影像卷帘' });
-    fireEvent.click(swipeSwitch);
-    fireEvent.change(screen.getByLabelText('前期底图'), {
-      target: { value: 'amap-vector' },
-    });
-    fireEvent.change(screen.getByLabelText('后期底图'), {
-      target: { value: 'tencent-vector' },
-    });
-    fireEvent.change(screen.getByLabelText('卷帘位置'), {
-      target: { value: '64' },
-    });
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
+    fireEvent.click(await screen.findByText('两期卷帘'));
 
-    expect(swipeSwitch).toBeChecked();
-    expect(screen.getByText('位置 64%')).toBeInTheDocument();
-    expect(screen.getByText('卷帘 64%')).toBeInTheDocument();
+    expect(screen.queryByText('工作空间')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '字段概览' })).not.toBeInTheDocument();
+    expect(screen.getByText('卷帘 50%')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /已进入两期影像卷帘模式/ })).toBeInTheDocument();
     expect(useMapStore.getState().imagerySwipe).toMatchObject({
       enabled: true,
       beforeBasemapId: 'amap-vector',
       afterBasemapId: 'tencent-vector',
-      position: 64,
+      position: 50,
     });
+    expect(useSettingsStore.getState().panels.layers).toBe(false);
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
+    fireEvent.click(await screen.findByText('浏览查看'));
+
+    await waitFor(() => expect(screen.getByText('工作空间')).toBeInTheDocument());
+    expect(useMapStore.getState().imagerySwipe.enabled).toBe(false);
+    expect(useSettingsStore.getState().panels.layers).toBe(true);
   });
 
   it('reports stage-1 command feedback instead of leaving unfinished actions silent', async () => {
@@ -208,6 +210,55 @@ describe('App', () => {
       layer_ids: [1],
     });
     expect(await screen.findByRole('status', { name: /GDB 导出完成/ })).toBeInTheDocument();
+  });
+
+  it('opens local config dialog and writes editable runtime settings', async () => {
+    const initialSettings = {
+      config_source: 'H:/repo/config/settings.example.yaml',
+      local_config_path: 'H:/repo/config/settings.local.yaml',
+      server: { host: '127.0.0.1', port: 8000 },
+      frontend: { dev_server: { host: '127.0.0.1', port: 9173 } },
+    };
+    const updatedSettings = {
+      ...initialSettings,
+      config_source: initialSettings.local_config_path,
+      server: { host: '127.0.0.1', port: 8100 },
+      frontend: { dev_server: { host: '127.0.0.1', port: 9273 } },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(initialSettings), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(updatedSettings), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.click(screen.getByLabelText('本地配置'));
+
+    expect(await screen.findByRole('dialog', { name: '本地运行配置' })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('9173')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('API Port'), { target: { value: '8100' } });
+    fireEvent.change(screen.getByLabelText('Web Port'), { target: { value: '9273' } });
+    fireEvent.click(screen.getByRole('button', { name: '写入本地配置' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const requestInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(requestInit.body as string)).toEqual({
+      server: { host: '127.0.0.1', port: 8100 },
+      frontend: { dev_server: { host: '127.0.0.1', port: 9273 } },
+    });
+    expect(screen.getByRole('status', { name: /本地配置已写入/ })).toBeInTheDocument();
   });
 
   it('separates settings from the main workspace surface', async () => {

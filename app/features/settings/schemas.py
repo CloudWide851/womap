@@ -1,4 +1,46 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class LocalServerSettings(BaseModel):
+    host: str = Field(min_length=1)
+    port: int = Field(ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def normalize_host(cls, value: str) -> str:
+        host = value.strip()
+        if not host:
+            raise ValueError("host must not be blank")
+        return host
+
+
+class LocalFrontendDevServerSettings(BaseModel):
+    host: str = Field(min_length=1)
+    port: int = Field(ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def normalize_host(cls, value: str) -> str:
+        host = value.strip()
+        if not host:
+            raise ValueError("host must not be blank")
+        return host
+
+
+class LocalFrontendSettings(BaseModel):
+    dev_server: LocalFrontendDevServerSettings
+
+
+class LocalRuntimeSettings(BaseModel):
+    config_source: str
+    local_config_path: str
+    server: LocalServerSettings
+    frontend: LocalFrontendSettings
+
+
+class LocalRuntimeSettingsUpdate(BaseModel):
+    server: LocalServerSettings
+    frontend: LocalFrontendSettings
 
 
 class RuntimePerformanceSettings(BaseModel):

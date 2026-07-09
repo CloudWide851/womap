@@ -1,8 +1,11 @@
 import {
   Combine,
+  DatabaseZap,
   Download,
+  Blend,
   Hand,
   Import,
+  MapPinned,
   MousePointer2,
   Move,
   Redo2,
@@ -15,15 +18,33 @@ import {
   Undo2,
   LogOut,
 } from 'lucide-react';
-import { Button, Checkbox, Popover, Radio } from 'antd';
-import { memo, useMemo, useState } from 'react';
+import {
+  Button,
+  Checkbox,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Popover,
+  Radio,
+  Select,
+} from 'antd';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 
 import womapLogo from '../../../logo.svg';
 import { IconTooltipButton } from './IconTooltipButton';
-import { exportLayers } from '../services/api';
+import {
+  exportLayers,
+  getLocalRuntimeSettings,
+  updateLocalRuntimeSettings,
+} from '../services/api';
+import type { LocalRuntimeSettings, LocalRuntimeSettingsUpdate } from '../services/api';
 import { formatRemainingTime, useAuthStore } from '../stores/useAuthStore';
+import { useMapStore } from '../stores/useMapStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
+import type { WorkspaceMode } from '../types/workspace';
 
 const tools = [
   { key: 'select', label: '选择', icon: MousePointer2 },
@@ -33,6 +54,13 @@ const tools = [
   { key: 'clip', label: '裁切', icon: Scissors },
   { key: 'split', label: '分割', icon: SplitSquareHorizontal },
   { key: 'merge', label: '合并', icon: Combine },
+];
+
+const workspaceModeOptions: Array<{ label: string; value: WorkspaceMode }> = [
+  { value: 'browse', label: '浏览查看' },
+  { value: 'edit', label: '图斑编辑' },
+  { value: 'swipe', label: '两期卷帘' },
+  { value: 'inspect', label: '属性查看' },
 ];
 
 interface ToolbarToolButtonProps {
@@ -60,25 +88,187 @@ const ToolbarToolButton = memo(function ToolbarToolButton({
   );
 });
 
+interface LocalConfigDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onNotice: (notice: {
+    tone: 'info' | 'success' | 'warning';
+    title: string;
+    detail: string;
+  }) => void;
+}
+
+function LocalConfigDialog({ open, onClose, onNotice }: LocalConfigDialogProps) {
+  const [form] = Form.useForm<LocalRuntimeSettingsUpdate>();
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [summary, setSummary] = useState<LocalRuntimeSettings | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    getLocalRuntimeSettings()
+      .then((settings) => {
+        if (cancelled) {
+          return;
+        }
+        setSummary(settings);
+        form.setFieldsValue({
+          server: settings.server,
+          frontend: settings.frontend,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        onNotice({
+          tone: 'warning',
+          title: '本地配置加载失败',
+          detail: error instanceof Error ? error.message : '设置服务返回未知错误。',
+        });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form, onNotice, open]);
+
+  const handleSave = async (values: LocalRuntimeSettingsUpdate) => {
+    setSaving(true);
+    try {
+      const savedSettings = await updateLocalRuntimeSettings(values);
+      setSummary(savedSettings);
+      form.setFieldsValue({
+        server: savedSettings.server,
+        frontend: savedSettings.frontend,
+      });
+      onNotice({
+        tone: 'success',
+        title: '本地配置已写入',
+        detail: '已保存到 settings.local.yaml，重启服务后按新端口生效。',
+      });
+    } catch (error) {
+      onNotice({
+        tone: 'warning',
+        title: '本地配置保存失败',
+        detail: error instanceof Error ? error.message : '设置服务返回未知错误。',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      className="local-config-modal"
+      title="本地运行配置"
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      width={520}
+    >
+      <div className="local-config-summary">
+        <span>来源 {summary?.config_source ?? '--'}</span>
+        <span>写回 {summary?.local_config_path ?? 'config/settings.local.yaml'}</span>
+      </div>
+      <Form
+        form={form}
+        layout="vertical"
+        className="local-config-form"
+        disabled={loading}
+        onFinish={handleSave}
+      >
+        <div className="local-config-grid">
+          <Form.Item
+            label="API Host"
+            name={['server', 'host']}
+            rules={[{ required: true, message: '请输入 API Host' }]}
+          >
+            <Input placeholder="127.0.0.1" />
+          </Form.Item>
+          <Form.Item
+            label="API Port"
+            name={['server', 'port']}
+            rules={[{ required: true, message: '请输入 API Port' }]}
+          >
+            <InputNumber min={1} max={65535} controls={false} />
+          </Form.Item>
+          <Form.Item
+            label="Web Host"
+            name={['frontend', 'dev_server', 'host']}
+            rules={[{ required: true, message: '请输入 Web Host' }]}
+          >
+            <Input placeholder="127.0.0.1" />
+          </Form.Item>
+          <Form.Item
+            label="Web Port"
+            name={['frontend', 'dev_server', 'port']}
+            rules={[{ required: true, message: '请输入 Web Port' }]}
+          >
+            <InputNumber min={1} max={65535} controls={false} />
+          </Form.Item>
+        </div>
+        <div className="local-config-actions">
+          <Button onClick={onClose}>关闭</Button>
+          <Button type="primary" htmlType="submit" loading={saving}>
+            写入本地配置
+          </Button>
+        </div>
+      </Form>
+    </Modal>
+  );
+}
+
 interface TopToolbarProps {
   onOpenSettings: () => void;
 }
 
 export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
+  const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
+  const setWorkspaceMode = useWorkspaceStore((state) => state.setWorkspaceMode);
   const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
   const layers = useWorkspaceStore((state) => state.layers);
+  const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
+  const setSelectedBasemap = useMapStore((state) => state.setSelectedBasemap);
+  const setSwipeEnabled = useMapStore((state) => state.setSwipeEnabled);
+  const basemaps = useSettingsStore((state) => state.basemaps);
+  const collapseSidePanelsForSwipe = useSettingsStore(
+    (state) => state.collapseSidePanelsForSwipe,
+  );
+  const restoreSidePanelsAfterSwipe = useSettingsStore(
+    (state) => state.restoreSidePanelsAfterSwipe,
+  );
   const mode = useAuthStore((state) => state.mode);
   const expiresAt = useAuthStore((state) => state.expiresAt);
   const now = useAuthStore((state) => state.now);
   const logout = useAuthStore((state) => state.logout);
   const remaining = expiresAt ? formatRemainingTime(expiresAt - now) : '--';
   const [exportOpen, setExportOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'shp' | 'gdb'>('shp');
   const [checkedLayerIds, setCheckedLayerIds] = useState<string[]>([]);
+  const basemapOptions = useMemo(
+    () =>
+      basemaps.map((provider) => ({
+        label: provider.name,
+        value: provider.id,
+        disabled: !provider.enabled,
+      })),
+    [basemaps],
+  );
   const backendLayerIds = useMemo(
     () =>
       checkedLayerIds
@@ -86,6 +276,39 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
         .filter((layerId) => Number.isInteger(layerId) && layerId > 0),
     [checkedLayerIds],
   );
+
+  const handleModeChange = (nextMode: WorkspaceMode) => {
+    const leavingSwipe = workspaceMode === 'swipe' && nextMode !== 'swipe';
+    setWorkspaceMode(nextMode);
+    if (nextMode === 'swipe') {
+      setSwipeEnabled(true);
+      collapseSidePanelsForSwipe();
+      return;
+    }
+    if (leavingSwipe) {
+      setSwipeEnabled(false);
+      restoreSidePanelsAfterSwipe();
+    }
+  };
+
+  const handleToolSelect = (toolKey: string) => {
+    if (workspaceMode === 'swipe') {
+      setSwipeEnabled(false);
+      restoreSidePanelsAfterSwipe();
+    }
+    setWorkspaceMode('edit');
+    setActiveTool(toolKey);
+  };
+
+  const handleBasemapChange = (basemapId: string) => {
+    setSelectedBasemap(basemapId);
+    const provider = basemaps.find((item) => item.id === basemapId);
+    showNotice({
+      tone: 'info',
+      title: '底图已切换',
+      detail: provider ? provider.name : basemapId,
+    });
+  };
 
   const handleExportOpenChange = (open: boolean) => {
     setExportOpen(open);
@@ -217,6 +440,38 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
               icon={<Download size={17} />}
             />
           </Popover>
+          <IconTooltipButton
+            className="tool-icon-button"
+            label="本地配置"
+            icon={<DatabaseZap size={17} />}
+            onClick={() => setConfigOpen(true)}
+          />
+        </span>
+
+        <span className="toolbar-cluster toolbar-cluster-mode" role="group" aria-label="工作模式">
+          <Blend size={15} aria-hidden="true" />
+          <Select
+            size="small"
+            className="toolbar-select mode-select"
+            classNames={{ popup: { root: 'womap-select-popup' } }}
+            aria-label="工作模式"
+            value={workspaceMode}
+            options={workspaceModeOptions}
+            onChange={handleModeChange}
+          />
+        </span>
+
+        <span className="toolbar-cluster toolbar-cluster-basemap" role="group" aria-label="地图底图">
+          <MapPinned size={15} aria-hidden="true" />
+          <Select
+            size="small"
+            className="toolbar-select basemap-select"
+            classNames={{ popup: { root: 'womap-select-popup' } }}
+            aria-label="地图底图"
+            value={selectedBasemapId}
+            options={basemapOptions}
+            onChange={handleBasemapChange}
+          />
         </span>
 
         <span className="toolbar-cluster toolbar-cluster-edit" role="group" aria-label="编辑工具">
@@ -228,7 +483,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
                 active={activeTool === tool.key}
                 icon={Icon}
                 label={tool.label}
-                onClick={() => setActiveTool(tool.key)}
+                onClick={() => handleToolSelect(tool.key)}
               />
             );
           })}
@@ -270,6 +525,11 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
           />
         </span>
       </nav>
+      <LocalConfigDialog
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
+        onNotice={showNotice}
+      />
     </header>
   );
 }

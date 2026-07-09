@@ -5,7 +5,11 @@ import type { BasemapProvider, PanelLayoutSettings } from '../types/workspace';
 interface SettingsState {
   basemaps: BasemapProvider[];
   panels: PanelLayoutSettings;
+  swipePanelSnapshot: PanelLayoutSettings | null;
   togglePanel: (panel: keyof PanelLayoutSettings) => void;
+  collapseSidePanelsForSwipe: () => void;
+  restoreSidePanelsAfterSwipe: () => void;
+  reset: () => void;
 }
 
 const basemaps: BasemapProvider[] = [
@@ -62,16 +66,21 @@ const basemaps: BasemapProvider[] = [
   },
 ];
 
-export const useSettingsStore = create<SettingsState>((set) => ({
-  basemaps,
-  panels: {
+function createInitialPanels(): PanelLayoutSettings {
+  return {
     layers: true,
     basemaps: true,
     jobs: true,
     properties: true,
     fields: true,
     performance: true,
-  },
+  };
+}
+
+export const useSettingsStore = create<SettingsState>((set) => ({
+  basemaps,
+  panels: createInitialPanels(),
+  swipePanelSnapshot: null,
   togglePanel: (panel) =>
     set((state) => ({
       panels: {
@@ -79,4 +88,38 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         [panel]: !state.panels[panel],
       },
     })),
+  collapseSidePanelsForSwipe: () =>
+    set((state) => {
+      if (state.swipePanelSnapshot) {
+        return state;
+      }
+      return {
+        swipePanelSnapshot: state.panels,
+        panels: {
+          ...state.panels,
+          layers: false,
+          basemaps: false,
+          jobs: false,
+          properties: false,
+          fields: false,
+          performance: false,
+        },
+      };
+    }),
+  restoreSidePanelsAfterSwipe: () =>
+    set((state) => {
+      if (!state.swipePanelSnapshot) {
+        return state;
+      }
+      return {
+        panels: state.swipePanelSnapshot,
+        swipePanelSnapshot: null,
+      };
+    }),
+  reset: () =>
+    set({
+      basemaps,
+      panels: createInitialPanels(),
+      swipePanelSnapshot: null,
+    }),
 }));

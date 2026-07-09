@@ -14,6 +14,12 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 });
 
+const originalGetComputedStyle = window.getComputedStyle.bind(window);
+Object.defineProperty(window, 'getComputedStyle', {
+  writable: true,
+  value: (element: Element) => originalGetComputedStyle(element),
+});
+
 class ResizeObserverMock {
   observe() {}
   unobserve() {}

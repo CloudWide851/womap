@@ -1,4 +1,4 @@
-import { Button } from 'antd';
+import { Button, Select } from 'antd';
 import { Blend, LocateFixed, ScanLine } from 'lucide-react';
 
 import { coordinateSystems } from './coordinateTransforms';
@@ -17,8 +17,19 @@ export function MapToolsPanel() {
   const setSwipeBasemap = useMapStore((state) => state.setSwipeBasemap);
   const setSwipePosition = useMapStore((state) => state.setSwipePosition);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
+  const setWorkspaceMode = useWorkspaceStore((state) => state.setWorkspaceMode);
   const basemaps = useSettingsStore((state) => state.basemaps);
+  const collapseSidePanelsForSwipe = useSettingsStore((state) => state.collapseSidePanelsForSwipe);
+  const restoreSidePanelsAfterSwipe = useSettingsStore((state) => state.restoreSidePanelsAfterSwipe);
   const enabledBasemaps = basemaps.filter((provider) => provider.enabled);
+  const coordinateOptions = coordinateSystems.map((system) => ({
+    label: system.shortLabel,
+    value: system.id,
+  }));
+  const enabledBasemapOptions = enabledBasemaps.map((provider) => ({
+    label: provider.name,
+    value: provider.id,
+  }));
   const input = coordinateConversion.input;
   const result = coordinateConversion.result;
   const error = coordinateConversion.error;
@@ -45,6 +56,12 @@ export function MapToolsPanel() {
 
   const handleSwipeToggle = (enabled: boolean) => {
     setSwipeEnabled(enabled);
+    setWorkspaceMode(enabled ? 'swipe' : 'browse');
+    if (enabled) {
+      collapseSidePanelsForSwipe();
+    } else {
+      restoreSidePanelsAfterSwipe();
+    }
     showNotice({
       tone: 'info',
       title: enabled ? '卷帘已开启' : '卷帘已关闭',
@@ -70,31 +87,27 @@ export function MapToolsPanel() {
         <div className="coordinate-grid">
           <label>
             <span>源</span>
-            <select
+            <Select
+              size="small"
+              className="womap-compact-select"
+              classNames={{ popup: { root: 'womap-select-popup' } }}
               aria-label="源坐标系"
               value={input.source}
-              onChange={(event) => setCoordinateCrs('source', event.target.value as CoordinateCrs)}
-            >
-              {coordinateSystems.map((system) => (
-                <option key={system.id} value={system.id}>
-                  {system.shortLabel}
-                </option>
-              ))}
-            </select>
+              options={coordinateOptions}
+              onChange={(value) => setCoordinateCrs('source', value as CoordinateCrs)}
+            />
           </label>
           <label>
             <span>目标</span>
-            <select
+            <Select
+              size="small"
+              className="womap-compact-select"
+              classNames={{ popup: { root: 'womap-select-popup' } }}
               aria-label="目标坐标系"
               value={input.target}
-              onChange={(event) => setCoordinateCrs('target', event.target.value as CoordinateCrs)}
-            >
-              {coordinateSystems.map((system) => (
-                <option key={system.id} value={system.id}>
-                  {system.shortLabel}
-                </option>
-              ))}
-            </select>
+              options={coordinateOptions}
+              onChange={(value) => setCoordinateCrs('target', value as CoordinateCrs)}
+            />
           </label>
           <label>
             <span>X / 经度</span>
@@ -156,31 +169,27 @@ export function MapToolsPanel() {
         <div className="swipe-select-grid">
           <label>
             <span>前期</span>
-            <select
+            <Select
+              size="small"
+              className="womap-compact-select"
+              classNames={{ popup: { root: 'womap-select-popup' } }}
               aria-label="前期底图"
               value={imagerySwipe.beforeBasemapId}
-              onChange={(event) => setSwipeBasemap('beforeBasemapId', event.target.value)}
-            >
-              {enabledBasemaps.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
+              options={enabledBasemapOptions}
+              onChange={(value) => setSwipeBasemap('beforeBasemapId', value)}
+            />
           </label>
           <label>
             <span>后期</span>
-            <select
+            <Select
+              size="small"
+              className="womap-compact-select"
+              classNames={{ popup: { root: 'womap-select-popup' } }}
               aria-label="后期底图"
               value={imagerySwipe.afterBasemapId}
-              onChange={(event) => setSwipeBasemap('afterBasemapId', event.target.value)}
-            >
-              {enabledBasemaps.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
+              options={enabledBasemapOptions}
+              onChange={(value) => setSwipeBasemap('afterBasemapId', value)}
+            />
           </label>
         </div>
         <label className="swipe-range">
