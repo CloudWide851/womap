@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useMapStore } from '../stores/useMapStore';
+import { useJobsStore } from '../stores/useJobsStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
@@ -12,6 +13,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   useAuthStore.getState().reset();
   useMapStore.getState().reset();
+  useJobsStore.getState().reset();
   useSettingsStore.getState().reset();
   useWorkspaceStore.getState().reset();
   cleanup();
@@ -133,12 +135,31 @@ describe('App', () => {
     expect(useSettingsStore.getState().panels.layers).toBe(true);
   });
 
-  it('reports stage-1 command feedback instead of leaving unfinished actions silent', async () => {
+  it('opens the import center and still reports unfinished command feedback', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/settings/import-sources')) {
+        return new Response(JSON.stringify({ cache_path: '.womap-data/import-cache', batch_size: 2000, sources: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/v1/jobs') || url.endsWith('/api/v1/layers')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     await loginToWorkbench();
 
     fireEvent.click(screen.getByLabelText('导入数据'));
-    expect(screen.getByRole('status', { name: /导入入口已标记/ })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: '导入中心' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '管理数据源' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     fireEvent.click(screen.getByLabelText('保存项目'));
     expect(screen.getByRole('status', { name: /保存入口已标记/ })).toBeInTheDocument();
@@ -201,12 +222,19 @@ describe('App', () => {
       selectedLayerId: '1',
       layers: [{ ...firstLayer, id: '1', name: '后端地块', visible: true }],
     });
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new Blob(['zip'], { type: 'application/zip' }), {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/layers') || url.endsWith('/api/v1/jobs')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(new Blob(['zip'], { type: 'application/zip' }), {
         status: 200,
         headers: { 'content-disposition': 'attachment; filename="womap-export-gdb.zip"' },
-      }),
-    );
+      });
+    });
     vi.stubGlobal('fetch', fetchMock);
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -225,8 +253,12 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('radio', { name: 'GDB' }));
     fireEvent.click(screen.getByRole('button', { name: '导出 GDB' }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const exportCall = await waitFor(() => {
+      const call = fetchMock.mock.calls.find((item) => String(item[0]).endsWith('/api/v1/exports'));
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const requestInit = exportCall[1] as RequestInit;
     expect(JSON.parse(requestInit.body as string)).toEqual({
       format: 'gdb',
       layer_ids: [1],
@@ -247,20 +279,25 @@ describe('App', () => {
       server: { host: '127.0.0.1', port: 8100 },
       frontend: { dev_server: { host: '127.0.0.1', port: 9273 } },
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(initialSettings), {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/layers') || url.endsWith('/api/v1/jobs')) {
+        return new Response(JSON.stringify([]), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(updatedSettings), {
+        });
+      }
+      if (url.endsWith('/api/v1/settings/local') && init?.method === 'PUT') {
+        return new Response(JSON.stringify(updatedSettings), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        }),
-      );
+        });
+      }
+      return new Response(JSON.stringify(initialSettings), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<App />);
@@ -274,8 +311,14 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Web Port'), { target: { value: '9273' } });
     fireEvent.click(screen.getByRole('button', { name: '写入本地配置' }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const requestInit = fetchMock.mock.calls[1][1] as RequestInit;
+    const updateCall = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        (item) => String(item[0]).endsWith('/api/v1/settings/local') && item[1]?.method === 'PUT',
+      );
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const requestInit = updateCall[1] as RequestInit;
     expect(JSON.parse(requestInit.body as string)).toEqual({
       server: { host: '127.0.0.1', port: 8100 },
       frontend: { dev_server: { host: '127.0.0.1', port: 9273 } },

@@ -25,6 +25,7 @@ const AttributeInspector = lazy(() =>
 
 export function App() {
   const [page, setPage] = useState<AppPageMode>('workspace');
+  const [settingsSection, setSettingsSection] = useState<'import-sources' | null>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const authenticated = useAuthStore((state) => state.authenticated);
   const expiresAt = useAuthStore((state) => state.expiresAt);
@@ -78,9 +79,20 @@ export function App() {
         ) : !workspaceReady ? (
           <div className="app-loading" role="status" aria-label="加载中" />
         ) : page === 'settings' ? (
-          <SettingsPage onBack={() => setPage('workspace')} />
+          <SettingsPage
+            focusSection={settingsSection}
+            onBack={() => {
+              setPage('workspace');
+              setSettingsSection(null);
+            }}
+          />
         ) : (
-          <WorkbenchLayout onOpenSettings={() => setPage('settings')} />
+          <WorkbenchLayout
+            onOpenSettings={(section) => {
+              setSettingsSection(section ?? null);
+              setPage('settings');
+            }}
+          />
         )}
       </Suspense>
       <Suspense fallback={null}>{inspectorTarget && <AttributeInspector />}</Suspense>

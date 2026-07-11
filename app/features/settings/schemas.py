@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -41,6 +43,58 @@ class LocalRuntimeSettings(BaseModel):
 class LocalRuntimeSettingsUpdate(BaseModel):
     server: LocalServerSettings
     frontend: LocalFrontendSettings
+
+
+class ImportSourceBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["local", "smb"]
+    root_path: str = ""
+    server: str = ""
+    share: str = ""
+    base_path: str = ""
+    username: str = ""
+    domain: str = ""
+    port: int = Field(default=445, ge=1, le=65535)
+    encrypt: bool = True
+    enabled: bool = True
+
+    @field_validator("name", "root_path", "server", "share", "base_path", "username", "domain")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class ImportSourceCreate(ImportSourceBase):
+    password: str | None = Field(default=None, max_length=512)
+
+
+class ImportSourceUpdate(ImportSourceBase):
+    password: str | None = Field(default=None, max_length=512)
+
+
+class ImportSourceResponse(ImportSourceBase):
+    id: str
+    credential_configured: bool = False
+
+
+class ImportSourceTestRequest(BaseModel):
+    password: str | None = Field(default=None, max_length=512)
+
+
+class ImportSourceTestResponse(BaseModel):
+    ok: bool
+    message: str
+
+
+class ImportSettingsResponse(BaseModel):
+    cache_path: str
+    batch_size: int
+    sources: list[ImportSourceResponse]
+
+
+class ImportOptionsUpdate(BaseModel):
+    cache_path: str = Field(min_length=1, max_length=500)
+    batch_size: int = Field(ge=100, le=20000)
 
 
 class RuntimePerformanceSettings(BaseModel):

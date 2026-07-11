@@ -31,6 +31,7 @@ interface WorkspaceState {
   closeInspector: () => void;
   toggleLayer: (layerId: string) => void;
   setLayerOpacity: (layerId: string, opacity: number) => void;
+  setBackendLayers: (layers: WorkspaceLayer[]) => void;
   reset: () => void;
 }
 
@@ -416,6 +417,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       layers: state.layers.map((layer) =>
         layer.id === layerId ? { ...layer, opacity } : layer,
       ),
+    })),
+  setBackendLayers: (layers) =>
+    set((state) => ({
+      layers: [...state.layers.filter((layer) => layer.source !== 'backend'), ...layers],
     })),
   reset: () => set(createInitialState()),
 }));

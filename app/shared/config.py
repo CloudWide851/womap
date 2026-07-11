@@ -95,6 +95,31 @@ class TestDatabaseSettings(BaseModel):
         return URL.create(drivername=self.driver, database=self.path)
 
 
+class ImportSourceSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    name: str
+    kind: Literal["local", "smb"] = "local"
+    root_path: str = ""
+    server: str = ""
+    share: str = ""
+    base_path: str = ""
+    username: str = ""
+    domain: str = ""
+    port: int = 445
+    encrypt: bool = True
+    enabled: bool = True
+
+
+class ImportsSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cache_path: str = ".womap-data/import-cache"
+    batch_size: int = Field(default=2000, ge=100, le=20000)
+    sources: list[ImportSourceSettings] = Field(default_factory=list)
+
+
 class RedisSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -238,6 +263,7 @@ class Settings(BaseModel):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     maps: MapsSettings = Field(default_factory=MapsSettings)
     performance: PerformanceSettings = Field(default_factory=PerformanceSettings)
+    imports: ImportsSettings = Field(default_factory=ImportsSettings)
     config_source: str = "defaults"
 
 

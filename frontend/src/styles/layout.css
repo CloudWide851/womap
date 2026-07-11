@@ -2252,3 +2252,247 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.import-center-modal .ant-modal-content {
+  border: 1px solid var(--color-line, #dfe3ea);
+  border-radius: 6px;
+  box-shadow: 0 18px 48px rgb(31 42 68 / 14%);
+}
+
+.import-center-toolbar,
+.import-center-actions,
+.import-progress-heading,
+.import-progress-metrics,
+.import-container-heading,
+.import-dataset-row,
+.import-options-row,
+.import-source-row,
+.settings-section-actions,
+.section-title-label {
+  display: flex;
+  align-items: center;
+}
+
+.import-center-toolbar {
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-line, #e4e7ec);
+}
+
+.import-center-toolbar .ant-select {
+  min-width: 230px;
+}
+
+.import-source-status {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #536078;
+  font-size: 12px;
+}
+
+.import-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #b45f4d;
+  background: #fff8f6;
+  color: #7d3f35;
+  font-size: 12px;
+}
+
+.import-progress-panel {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dfe3ea;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.import-progress-heading {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.import-progress-heading span {
+  overflow: hidden;
+  color: #657086;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-progress-metrics {
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  color: #5f687a;
+  font-size: 11px;
+}
+
+.import-progress-warning,
+.import-replace-hint {
+  color: #8a641f;
+  font-size: 11px;
+}
+
+.import-progress-warning {
+  margin-top: 6px;
+}
+
+.import-dataset-list {
+  max-height: min(48vh, 430px);
+  overflow-y: auto;
+  border: 1px solid #e1e4ea;
+  border-radius: 6px;
+}
+
+.import-container-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  gap: 7px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #e4e7ec;
+  background: #f7f8fa;
+  color: #3d4960;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.import-dataset-row {
+  min-height: 50px;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #edf0f3;
+  background: #fff;
+}
+
+.import-dataset-row:last-child {
+  border-bottom: 0;
+}
+
+.import-dataset-row.is-invalid {
+  background: #fffafa;
+}
+
+.import-dataset-main,
+.import-source-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.import-dataset-main strong,
+.import-source-main strong {
+  overflow: hidden;
+  color: #26324a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-dataset-main span,
+.import-source-main span {
+  overflow: hidden;
+  color: #70798b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-warning-icon {
+  color: #a14f44;
+}
+
+.import-advisory-icon {
+  color: #987334;
+}
+
+.import-crs-input {
+  width: 112px;
+}
+
+.import-center-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.panel-empty {
+  margin: 8px 0;
+  color: #788195;
+  font-size: 11px;
+}
+
+.settings-card-imports {
+  grid-column: 1 / -1;
+}
+
+.settings-section-actions {
+  justify-content: space-between;
+}
+
+.section-title-label {
+  gap: 7px;
+}
+
+.import-options-row {
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.import-options-row .ant-input {
+  flex: 1;
+}
+
+.import-source-list {
+  border-top: 1px solid #e4e7ec;
+}
+
+.import-source-row {
+  min-height: 50px;
+  gap: 8px;
+  border-bottom: 1px solid #e9ecf0;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+@media (max-width: 760px) {
+  .import-center-toolbar,
+  .import-source-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .import-center-toolbar .ant-select,
+  .import-source-status {
+    width: 100%;
+  }
+
+  .import-dataset-row {
+    flex-wrap: wrap;
+  }
+
+  .import-dataset-main {
+    min-width: 170px;
+  }
+
+  .settings-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .import-center-modal,
+  .import-dataset-row,
+  .import-source-row {
+    transition: none !important;
+  }
+}

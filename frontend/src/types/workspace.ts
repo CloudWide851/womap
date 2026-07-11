@@ -26,6 +26,8 @@ export interface WorkspaceLayer {
   color: string;
   fields: WorkspaceField[];
   performance: LayerPerformanceState;
+  source?: 'demo' | 'backend';
+  bounds?: Record<string, number>;
 }
 
 export interface WorkspaceField {
@@ -130,11 +132,12 @@ export interface PanelLayoutSettings {
 export interface FeatureQueryMeta {
   limit: number;
   returned: number;
+  next_cursor?: string | null;
   truncated: boolean;
   warning?: string;
   bbox?: [number, number, number, number];
   simplify?: number;
-  cacheHit: boolean;
+  cache_hit: boolean;
   strategy: string;
 }
 
@@ -151,7 +154,7 @@ export interface MapRuntimeState {
 export interface JobState {
   id: string;
   jobType: string;
-  status: 'queued' | 'running' | 'done' | 'failed' | 'unknown';
+  status: 'queued' | 'running' | 'interrupted' | 'done' | 'failed' | 'unknown';
   progress: number;
   message?: string;
 }

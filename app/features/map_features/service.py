@@ -26,18 +26,22 @@ class MapFeatureService:
         if truncated:
             warning = "请求数量超过系统上限，已按最大安全窗口返回。"
 
-        features = await self.repository.list_viewport_features(
+        features, next_cursor, has_more = await self.repository.list_viewport_features(
             layer_id=layer_id,
             bbox=bbox,
             limit=effective_limit,
             cursor=cursor,
             simplify=effective_simplify,
         )
+        if has_more:
+            truncated = True
+            warning = "当前视口要素超过安全上限，请放大地图查看完整数据。"
         return FeatureCollectionResponse(
             features=features,
             meta=FeatureQueryMeta(
                 limit=effective_limit,
                 returned=len(features),
+                next_cursor=next_cursor,
                 truncated=truncated,
                 warning=warning,
                 bbox=bbox.as_tuple(),

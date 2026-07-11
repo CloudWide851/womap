@@ -226,6 +226,7 @@ frontend/.env.local
 frontend/.vite/
 .vite-cache/
 .womap-launcher/
+.womap-data/
 *.tsbuildinfo
 
 # Local database files

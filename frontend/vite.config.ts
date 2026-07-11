@@ -76,10 +76,17 @@ function readYamlPort(path: string, fallback: number) {
 
 const devServerHost = readYamlScalar('frontend.dev_server.host', '127.0.0.1');
 const devServerPort = readYamlPort('frontend.dev_server.port', 5173);
+const configuredApiHost = readYamlScalar('server.host', '127.0.0.1');
+const apiHost = ['0.0.0.0', '::'].includes(configuredApiHost) ? '127.0.0.1' : configuredApiHost;
+const apiPort = readYamlPort('server.port', 8000);
+const apiBaseUrl = process.env.VITE_API_BASE_URL?.trim() || `http://${apiHost}:${apiPort}`;
 
 export default defineConfig({
   plugins: [react()],
   cacheDir: '../.vite-cache/frontend',
+  define: {
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+  },
   resolve: {
     alias: [
       {

@@ -29,7 +29,7 @@ import {
   Radio,
   Select,
 } from 'antd';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { lazy, memo, Suspense, useEffect, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 
 import womapLogo from '../../../logo.svg';
@@ -45,6 +45,10 @@ import { useMapStore } from '../stores/useMapStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import type { WorkspaceMode } from '../types/workspace';
+
+const ImportCenter = lazy(() =>
+  import('../features/imports/ImportCenter').then((module) => ({ default: module.ImportCenter })),
+);
 
 const tools = [
   { key: 'select', label: '选择', icon: MousePointer2 },
@@ -229,7 +233,7 @@ function LocalConfigDialog({ open, onClose, onNotice }: LocalConfigDialogProps) 
 }
 
 interface TopToolbarProps {
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: 'import-sources') => void;
 }
 
 export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
@@ -257,6 +261,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const remaining = expiresAt ? formatRemainingTime(expiresAt - now) : '--';
   const [exportOpen, setExportOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'shp' | 'gdb'>('shp');
   const [checkedLayerIds, setCheckedLayerIds] = useState<string[]>([]);
@@ -418,7 +423,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
             className="tool-icon-button"
             label="导入数据"
             icon={<Import size={17} />}
-            onClick={() => notifyCommand('import-data')}
+            onClick={() => setImportOpen(true)}
           />
           <IconTooltipButton
             className="tool-icon-button"
@@ -509,9 +514,9 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
         <span className="toolbar-cluster toolbar-cluster-session" role="group" aria-label="工作台状态">
           <IconTooltipButton
             className="tool-icon-button"
-            label="打开设置"
-            icon={<Settings size={17} />}
-            onClick={onOpenSettings}
+              label="打开设置"
+              icon={<Settings size={17} />}
+              onClick={() => onOpenSettings()}
           />
           <span className="session-chip" aria-label={`当前${mode === 'long' ? '长' : '短'}会话 ${remaining}`}>
             <ShieldCheck size={15} aria-hidden="true" />
@@ -530,6 +535,18 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
         onClose={() => setConfigOpen(false)}
         onNotice={showNotice}
       />
+      <Suspense fallback={null}>
+        {importOpen && (
+          <ImportCenter
+            open={importOpen}
+            onClose={() => setImportOpen(false)}
+            onOpenSettings={() => {
+              setImportOpen(false);
+              onOpenSettings('import-sources');
+            }}
+          />
+        )}
+      </Suspense>
     </header>
   );
 }

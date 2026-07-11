@@ -29,6 +29,9 @@ describe('frontend startup configuration', () => {
 
     expect(viteConfig).toContain("readYamlScalar('frontend.dev_server.host'");
     expect(viteConfig).toContain("readYamlPort('frontend.dev_server.port'");
+    expect(viteConfig).toContain("readYamlScalar('server.host'");
+    expect(viteConfig).toContain("readYamlPort('server.port'");
+    expect(viteConfig).toContain("'import.meta.env.VITE_API_BASE_URL'");
     expect(viteConfig).toContain('strictPort: true');
     expect(vitestConfig).toContain('preserveSymlinks: true');
     expect(vitestConfig).toContain("pool: 'threads'");

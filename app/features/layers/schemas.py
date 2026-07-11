@@ -21,4 +21,7 @@ class LayerSummary(BaseModel):
     visible: bool = True
     locked: bool = False
     opacity: float = 1.0
+    source_type: str = "unknown"
+    fields: list[dict] = Field(default_factory=list)
+    style: dict = Field(default_factory=dict)
     performance: LayerPerformanceState = Field(default_factory=LayerPerformanceState)

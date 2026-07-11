@@ -1,11 +1,14 @@
 import { Tooltip } from 'antd';
 import { DatabaseZap, Layers3, MapPinned, MousePointerSquareDashed } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Feature from 'ol/Feature';
+import GeoJSON from 'ol/format/GeoJSON';
 import { buffer, getCenter } from 'ol/extent';
+import type { Extent } from 'ol/extent';
 import type { FeatureLike } from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import Polygon from 'ol/geom/Polygon';
+import Geometry from 'ol/geom/Geometry';
 import { fromExtent as polygonFromExtent } from 'ol/geom/Polygon';
 import Map from 'ol/Map';
 import View from 'ol/View';
@@ -22,6 +25,7 @@ import OSM from 'ol/source/OSM';
 import VectorSource from 'ol/source/Vector';
 import XYZ from 'ol/source/XYZ';
 
+import { getLayerFeatures } from '../../services/api';
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -29,6 +33,12 @@ import type { BasemapProvider, FeatureAttributePreview, WorkspaceLayer } from '.
 
 type BasemapSource = OSM | XYZ;
 type MapFeatureGeometry = Point | Polygon;
+type BackendFeature = Feature<Geometry>;
+
+interface BackendLayerFocusDetail {
+  name: string;
+  bounds: Record<string, number>;
+}
 
 const featureStyleCache = new globalThis.Map<string, Style>();
 
@@ -163,6 +173,12 @@ export function MapCanvas() {
   const baseLayerRef = useRef<TileLayer<BasemapSource> | null>(null);
   const swipeLayerRef = useRef<TileLayer<BasemapSource> | null>(null);
   const featureLayerRef = useRef<VectorLayer<VectorSource<Feature<MapFeatureGeometry>>> | null>(null);
+  const backendLayersRef = useRef(
+    new globalThis.Map<string, VectorLayer<VectorSource<BackendFeature>>>(),
+  );
+  const backendAbortRef = useRef<AbortController | null>(null);
+  const truncatedLayerIdsRef = useRef(new Set<string>());
+  const [mapReady, setMapReady] = useState(0);
   const selectedBasemapRef = useRef<BasemapProvider | undefined>(undefined);
   const basemapsRef = useRef<BasemapProvider[]>([]);
   const layersRef = useRef<WorkspaceLayer[]>([]);
@@ -178,6 +194,7 @@ export function MapCanvas() {
   const featurePreviews = useWorkspaceStore((state) => state.featurePreviews);
   const layers = useWorkspaceStore((state) => state.layers);
   const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
+  const showNotice = useWorkspaceStore((state) => state.showNotice);
   const selectedBasemap = useMemo(
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
@@ -280,6 +297,7 @@ export function MapCanvas() {
         map.on('moveend', handleMoveEnd);
         handleMoveEnd();
         mapInstanceRef.current = map;
+        setMapReady((value) => value + 1);
       }, 0);
     });
 
@@ -296,6 +314,8 @@ export function MapCanvas() {
       baseLayerRef.current = null;
       swipeLayerRef.current = null;
       featureLayerRef.current = null;
+      backendAbortRef.current?.abort();
+      backendLayersRef.current.clear();
     };
   }, [setViewState]);
 
@@ -353,6 +373,143 @@ export function MapCanvas() {
     featureLayerRef.current?.changed();
     mapInstanceRef.current?.render();
   }, [layers, selectedFeatureId]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mapReady === 0) return;
+    const backendLayers = layers.filter((layer) => layer.source === 'backend');
+    const activeIds = new Set(backendLayers.map((layer) => layer.id));
+
+    for (const [layerId, vectorLayer] of backendLayersRef.current) {
+      if (!activeIds.has(layerId)) {
+        map.removeLayer(vectorLayer);
+        backendLayersRef.current.delete(layerId);
+      }
+    }
+
+    for (const workspaceLayer of backendLayers) {
+      let vectorLayer = backendLayersRef.current.get(workspaceLayer.id);
+      if (!vectorLayer) {
+        vectorLayer = new VectorLayer({
+          source: new VectorSource<BackendFeature>({ useSpatialIndex: true }),
+          declutter: true,
+          style: (feature) =>
+            getFeatureStyle(feature, layersRef.current, selectedFeatureIdRef.current),
+        });
+        backendLayersRef.current.set(workspaceLayer.id, vectorLayer);
+        const insertAt = Math.max(0, map.getLayers().getLength() - 1);
+        map.getLayers().insertAt(insertAt, vectorLayer);
+      }
+      vectorLayer.setVisible(workspaceLayer.visible);
+      vectorLayer.setOpacity(workspaceLayer.opacity);
+      vectorLayer.changed();
+    }
+  }, [layers, mapReady]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mapReady === 0) return;
+    let timer: number | null = null;
+    let disposed = false;
+    const loadViewport = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const size = map.getSize();
+        if (!size || disposed) return;
+        const extent = map.getView().calculateExtent(size);
+        const bbox = extent.map((value) => Number(value.toFixed(3))).join(',');
+        backendAbortRef.current?.abort();
+        const controller = new AbortController();
+        backendAbortRef.current = controller;
+        const visibleLayers = layersRef.current.filter(
+          (layer) => layer.source === 'backend' && layer.visible,
+        );
+        void Promise.all(
+          visibleLayers.map(async (workspaceLayer) => {
+            const response = await getLayerFeatures(
+              workspaceLayer.id,
+              bbox,
+              2000,
+              controller.signal,
+            );
+            if (controller.signal.aborted || disposed) return;
+            if (response.meta.truncated && !truncatedLayerIdsRef.current.has(workspaceLayer.id)) {
+              truncatedLayerIdsRef.current.add(workspaceLayer.id);
+              showNotice({
+                tone: 'warning',
+                title: `${workspaceLayer.name} 仅显示当前安全窗口`,
+                detail: response.meta.warning ?? '请放大地图以查看更完整的图斑。',
+              });
+            } else if (!response.meta.truncated) {
+              truncatedLayerIdsRef.current.delete(workspaceLayer.id);
+            }
+            const vectorLayer = backendLayersRef.current.get(workspaceLayer.id);
+            const source = vectorLayer?.getSource();
+            if (!source) return;
+            const features = new GeoJSON().readFeatures(
+              {
+                type: 'FeatureCollection',
+                features: (response.features as Array<{
+                  id: number;
+                  geometry: unknown;
+                  properties: Record<string, unknown>;
+                }>).map((feature) => ({
+                  type: 'Feature',
+                  id: feature.id,
+                  geometry: feature.geometry,
+                  properties: feature.properties,
+                })),
+              },
+              { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
+            ) as BackendFeature[];
+            for (const feature of features) {
+              feature.set('layerId', workspaceLayer.id);
+              feature.set('geometryType', workspaceLayer.geometryType);
+              feature.setId(`backend:${workspaceLayer.id}:${feature.getId()}`);
+            }
+            source.clear(true);
+            source.addFeatures(features);
+            vectorLayer?.changed();
+          }),
+        ).catch((error) => {
+          if (error instanceof DOMException && error.name === 'AbortError') return;
+        });
+      }, 180);
+    };
+    map.on('moveend', loadViewport);
+    loadViewport();
+    return () => {
+      disposed = true;
+      map.un('moveend', loadViewport);
+      if (timer !== null) window.clearTimeout(timer);
+      backendAbortRef.current?.abort();
+    };
+  }, [layers, mapReady, showNotice]);
+
+  useEffect(() => {
+    const handleFocusLayer = (event: Event) => {
+      const map = mapInstanceRef.current;
+      const detail = (event as CustomEvent<BackendLayerFocusDetail>).detail;
+      if (!map || !detail?.bounds) return;
+      const { min_x: minX, min_y: minY, max_x: maxX, max_y: maxY } = detail.bounds;
+      if (![minX, minY, maxX, maxY].every(Number.isFinite)) return;
+      let extent: Extent = [minX, minY, maxX, maxY];
+      if (minX === maxX || minY === maxY) extent = buffer(extent, 480);
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      map.getView().fit(extent, {
+        duration: reducedMotion ? 0 : 360,
+        maxZoom: 16,
+        padding: [64, 64, 64, 64],
+      });
+      showNotice({
+        tone: 'success',
+        title: `已定位 ${detail.name}`,
+        detail: '地图已切换到新导入图层的范围。',
+      });
+    };
+    window.addEventListener('womap:focus-backend-layer', handleFocusLayer);
+    return () => window.removeEventListener('womap:focus-backend-layer', handleFocusLayer);
+  }, [showNotice]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;

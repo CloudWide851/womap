@@ -8,3 +8,6 @@ class JobService:
 
     async def get_status(self, job_id: str) -> JobStatus:
         return await self.repository.get_status(job_id)
+
+    async def list_statuses(self, limit: int = 30) -> list[JobStatus]:
+        return await self.repository.list_statuses(limit)

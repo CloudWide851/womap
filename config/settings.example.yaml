@@ -16,6 +16,11 @@ frontend:
     host: 127.0.0.1
     port: 5173
 
+imports:
+  cache_path: .womap-data/import-cache
+  batch_size: 2000
+  sources: []
+
 database:
   driver: postgresql+asyncpg
   host: localhost

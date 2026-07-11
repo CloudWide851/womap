@@ -1,6 +1,31 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.features.jobs.repository import JobRepository
+from app.features.jobs.router import get_job_service
+from app.features.jobs.service import JobService
+from app.features.layers.repository import LayerRepository
+from app.features.layers.router import get_layer_service
+from app.features.layers.service import LayerService
+from app.features.map_features.repository import MapFeatureRepository
+from app.features.map_features.router import get_map_feature_service
+from app.features.map_features.service import MapFeatureService
+
+
+class EmptyMapFeatureRepository(MapFeatureRepository):
+    async def list_viewport_features(self, **kwargs):
+        _ = kwargs
+        return [], None, False
+
+
+def create_api_test_app():
+    app = create_app()
+    app.dependency_overrides[get_layer_service] = lambda: LayerService(LayerRepository())
+    app.dependency_overrides[get_map_feature_service] = lambda: MapFeatureService(
+        EmptyMapFeatureRepository()
+    )
+    app.dependency_overrides[get_job_service] = lambda: JobService(JobRepository())
+    return app
 
 
 def test_health_returns_service_status() -> None:
@@ -17,7 +42,7 @@ def test_health_returns_service_status() -> None:
 
 
 def test_placeholder_api_routes_are_available() -> None:
-    client = TestClient(create_app())
+    client = TestClient(create_api_test_app())
 
     assert client.get("/api/v1/projects").json() == []
     assert client.get("/api/v1/layers").json() == []
@@ -63,7 +88,7 @@ def test_login_rejects_password_outside_policy_before_secret_check() -> None:
 
 
 def test_feature_query_rejects_invalid_bbox() -> None:
-    client = TestClient(create_app())
+    client = TestClient(create_api_test_app())
 
     response = client.get("/api/v1/layers/1/features?bbox=1,2,0,4")
 
@@ -71,7 +96,7 @@ def test_feature_query_rejects_invalid_bbox() -> None:
 
 
 def test_feature_query_clamps_large_limit() -> None:
-    client = TestClient(create_app())
+    client = TestClient(create_api_test_app())
 
     response = client.get("/api/v1/layers/1/features?bbox=0,0,10,10&limit=999999")
 
@@ -83,7 +108,7 @@ def test_feature_query_clamps_large_limit() -> None:
 
 
 def test_job_status_placeholder_route() -> None:
-    client = TestClient(create_app())
+    client = TestClient(create_api_test_app())
 
     response = client.get("/api/v1/jobs/import-1")
 
