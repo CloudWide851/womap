@@ -1,5 +1,5 @@
 from app.features.layers.repository import LayerRepository
-from app.features.layers.schemas import LayerSummary
+from app.features.layers.schemas import LayerCreate, LayerSummary
 from app.shared.config import get_settings
 
 
@@ -15,3 +15,6 @@ class LayerService:
                 layer.feature_count >= self.settings.performance.large_layer_feature_threshold
             )
         return layers
+
+    async def create_layer(self, payload: LayerCreate) -> LayerSummary:
+        return await self.repository.create_manual_polygon_layer(payload.name)

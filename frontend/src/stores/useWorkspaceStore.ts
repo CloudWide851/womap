@@ -32,6 +32,7 @@ interface WorkspaceState {
   toggleLayer: (layerId: string) => void;
   setLayerOpacity: (layerId: string, opacity: number) => void;
   setBackendLayers: (layers: WorkspaceLayer[]) => void;
+  upsertBackendLayer: (layer: WorkspaceLayer, select?: boolean) => void;
   reset: () => void;
 }
 
@@ -69,6 +70,7 @@ const commandNotices: Record<WorkspaceCommand, Omit<WorkspaceNotice, 'id'>> = {
 };
 
 const toolLabels: Record<string, string> = {
+  draw: '绘制图斑',
   select: '选择',
   pan: '平移',
   move: '移动',
@@ -87,7 +89,7 @@ const workspaceModeNotices: Record<WorkspaceMode, Omit<WorkspaceNotice, 'id'>> =
   edit: {
     tone: 'info',
     title: '已进入图斑编辑模式',
-    detail: '当前先开放编辑工具态反馈；真实图斑编辑会在轻量编辑阶段接入。',
+    detail: '选择绘制图斑后，可在地图中双击建立起点并完成 Polygon。',
   },
   swipe: {
     tone: 'info',
@@ -113,7 +115,10 @@ function createToolNotice(tool: string): WorkspaceNotice {
   return createNotice({
     tone: 'info',
     title: `已切换到${label}工具`,
-    detail: '阶段 1 先完成工具态反馈；真实地图编辑会在轻量编辑阶段接入。',
+    detail:
+      tool === 'draw'
+        ? '首次双击建立起点，随后单击添加顶点，再次双击完成图斑。'
+        : '当前工具已激活，可继续在地图中操作。',
   });
 }
 
@@ -354,10 +359,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   ...createInitialState(),
   setActiveTool: (tool) => set({ activeTool: tool, notice: createToolNotice(tool) }),
   setWorkspaceMode: (mode) =>
-    set({
+    set((state) => ({
       workspaceMode: mode,
+      activeTool: mode === 'edit' ? state.activeTool : 'select',
       notice: createWorkspaceModeNotice(mode),
-    }),
+    })),
   notifyCommand: (command) => set({ notice: createNotice(commandNotices[command]) }),
   showNotice: (notice) => set({ notice: createNotice(notice) }),
   selectLayer: (layerId) =>
@@ -422,5 +428,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set((state) => ({
       layers: [...state.layers.filter((layer) => layer.source !== 'backend'), ...layers],
     })),
+  upsertBackendLayer: (layer, select = false) =>
+    set((state) => {
+      const existingIndex = state.layers.findIndex((item) => item.id === layer.id);
+      const layers = [...state.layers];
+      if (existingIndex >= 0) {
+        layers[existingIndex] = layer;
+      } else {
+        layers.push(layer);
+      }
+      return {
+        layers,
+        selectedLayerId: select ? layer.id : state.selectedLayerId,
+        selectedFeatureId: select ? null : state.selectedFeatureId,
+      };
+    }),
   reset: () => set(createInitialState()),
 }));

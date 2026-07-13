@@ -87,6 +87,40 @@ export async function getLayers() {
   return response.json() as Promise<BackendLayerSummary[]>;
 }
 
+export async function createManualLayer(name?: string) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/layers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, geometry_type: 'Polygon' }),
+  });
+  if (!response.ok) throw await apiError(response, '图斑图层创建失败');
+  return response.json() as Promise<BackendLayerSummary>;
+}
+
+export async function createLayerFeature(
+  layerId: string,
+  coordinates: number[][][],
+  properties: Record<string, unknown> = {},
+) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      geometry: { type: 'Polygon', coordinates },
+      properties,
+    }),
+  });
+  if (!response.ok) throw await apiError(response, '图斑保存失败');
+  return response.json() as Promise<{
+    feature: {
+      id: number;
+      geometry: { type: 'Polygon'; coordinates: number[][][] };
+      properties: Record<string, unknown>;
+    };
+    layer: BackendLayerSummary;
+  }>;
+}
+
 export async function getJobs() {
   const response = await fetch(`${apiBaseUrl}/api/v1/jobs`);
   if (!response.ok) throw await apiError(response, '任务列表加载失败');

@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.imports.schemas import CatalogDataset
 from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobProgressDetail, JobStatus
+from app.features.projects.repository import ProjectRepository
 from app.models.job import Job
 from app.models.layer import Layer
 from app.models.map_feature import MapFeature
-from app.models.project import Project
 
 
 class ImportRepository:
@@ -104,16 +104,8 @@ class ImportRepository:
             and not (layer.performance or {}).get("staging", False)
         ]
 
-    async def ensure_default_project(self) -> Project:
-        project = await self.session.scalar(select(Project).where(Project.name == "本地工作台"))
-        if project is None:
-            project = Project(name="本地工作台", default_basemap="amap-vector", current_view={})
-            self.session.add(project)
-            await self.session.flush()
-        return project
-
     async def create_staging_layer(self, dataset: CatalogDataset, job_id: str) -> Layer:
-        project = await self.ensure_default_project()
+        project = await ProjectRepository(self.session).ensure_default_project()
         style_colors = ["#4656a8", "#b45f4d", "#5b6f91", "#8a6d3b", "#725a9f"]
         layer = Layer(
             project_id=project.id,

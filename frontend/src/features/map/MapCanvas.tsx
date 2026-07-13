@@ -10,6 +10,8 @@ import Point from 'ol/geom/Point';
 import Polygon from 'ol/geom/Polygon';
 import Geometry from 'ol/geom/Geometry';
 import { fromExtent as polygonFromExtent } from 'ol/geom/Polygon';
+import Draw from 'ol/interaction/Draw';
+import type { DrawEvent } from 'ol/interaction/Draw';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
@@ -25,11 +27,14 @@ import OSM from 'ol/source/OSM';
 import VectorSource from 'ol/source/Vector';
 import XYZ from 'ol/source/XYZ';
 
-import { getLayerFeatures } from '../../services/api';
+import { createLayerFeature, createManualLayer, getLayerFeatures } from '../../services/api';
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import type { BasemapProvider, FeatureAttributePreview, WorkspaceLayer } from '../../types/workspace';
+import { normalizeBackendLayer } from '../layers/backendLayer';
+import { MapSwipeDivider } from './MapSwipeDivider';
+import { createFirstVertexInteraction, resolveDrawingTarget } from './polygonEditing';
 
 type BasemapSource = OSM | XYZ;
 type MapFeatureGeometry = Point | Polygon;
@@ -178,7 +183,12 @@ export function MapCanvas() {
   );
   const backendAbortRef = useRef<AbortController | null>(null);
   const truncatedLayerIdsRef = useRef(new Set<string>());
+  const drawInteractionRef = useRef<Draw | null>(null);
+  const drawingStartedRef = useRef(false);
+  const drawingSavingRef = useRef(false);
+  const creatingLayerRef = useRef(false);
   const [mapReady, setMapReady] = useState(0);
+  const [drawingTargetLayerId, setDrawingTargetLayerId] = useState<string | null>(null);
   const selectedBasemapRef = useRef<BasemapProvider | undefined>(undefined);
   const basemapsRef = useRef<BasemapProvider[]>([]);
   const layersRef = useRef<WorkspaceLayer[]>([]);
@@ -187,14 +197,19 @@ export function MapCanvas() {
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
   const imagerySwipe = useMapStore((state) => state.imagerySwipe);
   const setViewState = useMapStore((state) => state.setViewState);
+  const setSwipePosition = useMapStore((state) => state.setSwipePosition);
   const basemaps = useSettingsStore((state) => state.basemaps);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
+  const activeTool = useWorkspaceStore((state) => state.activeTool);
+  const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
   const selectedFeatureId = useWorkspaceStore((state) => state.selectedFeatureId);
   const featureFocusRequest = useWorkspaceStore((state) => state.featureFocusRequest);
   const featurePreviews = useWorkspaceStore((state) => state.featurePreviews);
   const layers = useWorkspaceStore((state) => state.layers);
   const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
+  const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
+  const upsertBackendLayer = useWorkspaceStore((state) => state.upsertBackendLayer);
   const selectedBasemap = useMemo(
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
@@ -375,6 +390,61 @@ export function MapCanvas() {
   }, [layers, selectedFeatureId]);
 
   useEffect(() => {
+    if (workspaceMode !== 'edit' || activeTool !== 'draw') {
+      setDrawingTargetLayerId(null);
+      return;
+    }
+
+    const resolution = resolveDrawingTarget(layers, selectedLayerId);
+    if (resolution.kind === 'blocked') {
+      setDrawingTargetLayerId(null);
+      showNotice({
+        tone: 'warning',
+        title: '无法在当前图层绘制',
+        detail: resolution.message,
+      });
+      setActiveTool('select');
+      return;
+    }
+    if (resolution.kind === 'ready') {
+      setDrawingTargetLayerId(resolution.layer.id);
+      return;
+    }
+    if (creatingLayerRef.current) return;
+
+    creatingLayerRef.current = true;
+    setDrawingTargetLayerId(null);
+    showNotice({
+      tone: 'info',
+      title: '正在创建图斑图层',
+      detail: '当前没有选中真实面图层，正在创建新的 Polygon 图层。',
+    });
+    void createManualLayer()
+      .then((layer) => {
+        const current = useWorkspaceStore.getState();
+        if (current.workspaceMode !== 'edit' || current.activeTool !== 'draw') return;
+        const normalized = normalizeBackendLayer(layer);
+        upsertBackendLayer(normalized, true);
+        showNotice({
+          tone: 'success',
+          title: `已创建 ${normalized.name}`,
+          detail: '请在地图中双击建立第一个顶点。',
+        });
+      })
+      .catch((error) => {
+        showNotice({
+          tone: 'warning',
+          title: '图斑图层创建失败',
+          detail: error instanceof Error ? error.message : '后端未能创建 Polygon 图层。',
+        });
+        setActiveTool('select');
+      })
+      .finally(() => {
+        creatingLayerRef.current = false;
+      });
+  }, [activeTool, layers, selectedLayerId, setActiveTool, showNotice, upsertBackendLayer, workspaceMode]);
+
+  useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || mapReady === 0) return;
     const backendLayers = layers.filter((layer) => layer.source === 'backend');
@@ -405,6 +475,131 @@ export function MapCanvas() {
       vectorLayer.changed();
     }
   }, [layers, mapReady]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (
+      !map ||
+      mapReady === 0 ||
+      workspaceMode !== 'edit' ||
+      activeTool !== 'draw' ||
+      !drawingTargetLayerId
+    ) {
+      return;
+    }
+
+    const draw = new Draw({ type: 'Polygon', stopClick: true });
+    draw.setActive(false);
+    drawingStartedRef.current = false;
+    drawingSavingRef.current = false;
+    const starter = createFirstVertexInteraction(
+      draw,
+      () => !drawingStartedRef.current && !drawingSavingRef.current,
+      () => {
+        drawingStartedRef.current = true;
+        showNotice({
+          tone: 'info',
+          title: '已建立图斑起点',
+          detail: '继续单击添加顶点，至少三个顶点后双击完成。',
+        });
+      },
+    );
+
+    const handleDrawAbort = () => {
+      drawingStartedRef.current = false;
+      draw.setActive(false);
+    };
+    const handleDrawEnd = (event: DrawEvent) => {
+      const geometry = event.feature.getGeometry();
+      if (!(geometry instanceof Polygon)) {
+        handleDrawAbort();
+        return;
+      }
+      drawingSavingRef.current = true;
+      draw.setActive(false);
+      void createLayerFeature(
+        drawingTargetLayerId,
+        geometry.getCoordinates() as number[][][],
+      )
+        .then((response) => {
+          const normalizedLayer = normalizeBackendLayer(response.layer);
+          const savedFeature = new GeoJSON().readFeature(
+            {
+              type: 'Feature',
+              id: response.feature.id,
+              geometry: response.feature.geometry,
+              properties: response.feature.properties,
+            },
+            { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
+          ) as BackendFeature;
+          savedFeature.set('layerId', normalizedLayer.id);
+          savedFeature.set('geometryType', normalizedLayer.geometryType);
+          savedFeature.setId(`backend:${normalizedLayer.id}:${response.feature.id}`);
+          backendLayersRef.current
+            .get(normalizedLayer.id)
+            ?.getSource()
+            ?.addFeature(savedFeature);
+          upsertBackendLayer(normalizedLayer, true);
+          showNotice({
+            tone: 'success',
+            title: '图斑已保存',
+            detail: `${normalizedLayer.name} 现有 ${normalizedLayer.featureCount} 个要素。`,
+          });
+        })
+        .catch((error) => {
+          showNotice({
+            tone: 'warning',
+            title: '图斑保存失败',
+            detail: error instanceof Error ? error.message : '后端未能保存当前 Polygon。',
+          });
+        })
+        .finally(() => {
+          drawingSavingRef.current = false;
+          drawingStartedRef.current = false;
+          draw.setActive(false);
+        });
+    };
+
+    draw.on('drawabort', handleDrawAbort);
+    draw.on('drawend', handleDrawEnd);
+    map.addInteraction(draw);
+    map.addInteraction(starter);
+    drawInteractionRef.current = draw;
+
+    return () => {
+      draw.abortDrawing();
+      draw.un('drawabort', handleDrawAbort);
+      draw.un('drawend', handleDrawEnd);
+      map.removeInteraction(starter);
+      map.removeInteraction(draw);
+      if (drawInteractionRef.current === draw) drawInteractionRef.current = null;
+      drawingStartedRef.current = false;
+    };
+  }, [
+    activeTool,
+    drawingTargetLayerId,
+    mapReady,
+    showNotice,
+    upsertBackendLayer,
+    workspaceMode,
+  ]);
+
+  useEffect(() => {
+    if (workspaceMode !== 'edit' || activeTool !== 'draw') return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      drawInteractionRef.current?.abortDrawing();
+      drawingStartedRef.current = false;
+      setActiveTool('select');
+      showNotice({
+        tone: 'info',
+        title: '已取消图斑绘制',
+        detail: '草图已清除，地图恢复普通选择。',
+      });
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [activeTool, setActiveTool, showNotice, workspaceMode]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -629,11 +824,7 @@ export function MapCanvas() {
         )}
       </div>
       {imagerySwipe.enabled && (
-        <div
-          className="map-swipe-divider"
-          style={{ left: `${imagerySwipe.position}%` }}
-          aria-hidden="true"
-        />
+        <MapSwipeDivider position={imagerySwipe.position} onChange={setSwipePosition} />
       )}
     </main>
   );

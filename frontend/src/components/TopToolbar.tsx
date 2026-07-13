@@ -8,6 +8,7 @@ import {
   MapPinned,
   MousePointer2,
   Move,
+  PenTool,
   Redo2,
   RotateCw,
   Save,
@@ -51,6 +52,7 @@ const ImportCenter = lazy(() =>
 );
 
 const tools = [
+  { key: 'draw', label: '绘制图斑', icon: PenTool },
   { key: 'select', label: '选择', icon: MousePointer2 },
   { key: 'pan', label: '平移', icon: Hand },
   { key: 'move', label: '移动', icon: Move },
@@ -244,6 +246,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
   const layers = useWorkspaceStore((state) => state.layers);
+  const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
   const setSelectedBasemap = useMapStore((state) => state.setSelectedBasemap);
   const setSwipeEnabled = useMapStore((state) => state.setSwipeEnabled);
@@ -281,6 +284,10 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
         .filter((layerId) => Number.isInteger(layerId) && layerId > 0),
     [checkedLayerIds],
   );
+  const exportableLayers = useMemo(
+    () => layers.filter((layer) => layer.source === 'backend'),
+    [layers],
+  );
 
   const handleModeChange = (nextMode: WorkspaceMode) => {
     const leavingSwipe = workspaceMode === 'swipe' && nextMode !== 'swipe';
@@ -302,7 +309,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
       restoreSidePanelsAfterSwipe();
     }
     setWorkspaceMode('edit');
-    setActiveTool(toolKey);
+    setActiveTool(toolKey === 'draw' && activeTool === 'draw' ? 'select' : toolKey);
   };
 
   const handleBasemapChange = (basemapId: string) => {
@@ -317,25 +324,30 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
 
   const handleExportOpenChange = (open: boolean) => {
     setExportOpen(open);
-    if (open && checkedLayerIds.length === 0) {
-      setCheckedLayerIds(layers.filter((layer) => layer.visible).map((layer) => layer.id));
+    if (open) {
+      const selectedLayer = exportableLayers.find((layer) => layer.id === selectedLayerId);
+      setCheckedLayerIds(
+        selectedLayer
+          ? [selectedLayer.id]
+          : exportableLayers.filter((layer) => layer.visible).map((layer) => layer.id),
+      );
     }
   };
 
   const handleExport = async () => {
+    if (exportableLayers.length === 0) {
+      showNotice({
+        tone: 'warning',
+        title: '暂无后端图层可导出',
+        detail: '当前工作台只有本地示例图层；导入或加载后端数据后才能生成 SHP/GDB 成果。',
+      });
+      return;
+    }
     if (checkedLayerIds.length === 0) {
       showNotice({
         tone: 'warning',
         title: '请选择导出图层',
         detail: '至少勾选一个后端图层后再导出 SHP 或 GDB。',
-      });
-      return;
-    }
-    if (backendLayerIds.length === 0) {
-      showNotice({
-        tone: 'warning',
-        title: '暂无后端图层可导出',
-        detail: '当前工作台只有本地示例图层；导入或加载后端数据后才能生成 SHP/GDB 成果。',
       });
       return;
     }
@@ -383,7 +395,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
         value={checkedLayerIds}
         onChange={(values) => setCheckedLayerIds(values.map(String))}
       >
-        {layers.map((layer) => (
+        {exportableLayers.map((layer) => (
           <Checkbox key={layer.id} value={layer.id} className="export-layer-option">
             <span>{layer.name}</span>
             <em>{layer.geometryType}</em>
@@ -479,20 +491,22 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
           />
         </span>
 
-        <span className="toolbar-cluster toolbar-cluster-edit" role="group" aria-label="编辑工具">
-          {tools.map((tool) => {
-            const Icon = tool.icon;
-            return (
-              <ToolbarToolButton
-                key={tool.key}
-                active={activeTool === tool.key}
-                icon={Icon}
-                label={tool.label}
-                onClick={() => handleToolSelect(tool.key)}
-              />
-            );
-          })}
-        </span>
+        {workspaceMode === 'edit' && (
+          <span className="toolbar-cluster toolbar-cluster-edit" role="group" aria-label="编辑工具">
+            {tools.map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <ToolbarToolButton
+                  key={tool.key}
+                  active={activeTool === tool.key}
+                  icon={Icon}
+                  label={tool.label}
+                  onClick={() => handleToolSelect(tool.key)}
+                />
+              );
+            })}
+          </span>
+        )}
 
         <span className="toolbar-cluster toolbar-cluster-history" role="group" aria-label="历史操作">
           <IconTooltipButton

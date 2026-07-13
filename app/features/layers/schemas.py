@@ -1,4 +1,19 @@
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class LayerCreate(BaseModel):
+    name: str | None = Field(default=None, max_length=160)
+    geometry_type: Literal["Polygon"] = "Polygon"
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class LayerPerformanceState(BaseModel):

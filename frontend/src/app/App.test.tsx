@@ -34,7 +34,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '进入工作台' })).toBeInTheDocument();
     expect(screen.getByAltText('WOMAP')).toBeInTheDocument();
-    expect(screen.getByLabelText('测绘扫描状态')).toBeInTheDocument();
+    expect(screen.queryByLabelText('测绘扫描状态')).not.toBeInTheDocument();
     expect(screen.getByText('默认账号 local-admin')).toBeInTheDocument();
     expect(screen.getByText('密码不少于 15 位即可进入本地工作台')).toBeInTheDocument();
     expect(screen.queryByLabelText('工作台预览')).not.toBeInTheDocument();
@@ -80,7 +80,7 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: '工作模式' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '地图底图' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: '地图底图' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: '编辑工具' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: '编辑工具' })).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: '历史操作' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '工作台状态' })).toBeInTheDocument();
     expect(screen.getByLabelText('新增图层')).toBeInTheDocument();
@@ -88,6 +88,11 @@ describe('App', () => {
     expect(screen.getByLabelText('打开设置')).toBeInTheDocument();
     expect(screen.getByLabelText(/当前短会话/)).toBeInTheDocument();
     expect(screen.getByLabelText('退出登录')).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
+    fireEvent.click(await screen.findByText('图斑编辑'));
+    expect(screen.getByRole('group', { name: '编辑工具' })).toBeInTheDocument();
+    expect(screen.getByLabelText('绘制图斑')).toBeInTheDocument();
   });
 
   it('converts coordinates from the map tools panel', async () => {
@@ -126,6 +131,7 @@ describe('App', () => {
       position: 50,
     });
     expect(useSettingsStore.getState().panels.layers).toBe(false);
+    expect(screen.queryByRole('group', { name: '编辑工具' })).not.toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
     fireEvent.click(await screen.findByText('浏览查看'));
@@ -173,6 +179,8 @@ describe('App', () => {
     fireEvent.click(screen.getByLabelText('新增图层'));
     expect(screen.getByRole('status', { name: /新增图层入口已标记/ })).toBeInTheDocument();
 
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
+    fireEvent.click(await screen.findByText('图斑编辑'));
     fireEvent.click(screen.getByLabelText('移动'));
     expect(screen.getByRole('status', { name: /已切换到移动工具/ })).toBeInTheDocument();
     expect(screen.getByLabelText('当前工具 移动')).toBeInTheDocument();
@@ -217,14 +225,58 @@ describe('App', () => {
   });
 
   it('submits selected backend layers for GDB export and reports the download', async () => {
-    const firstLayer = useWorkspaceStore.getState().layers[0];
-    useWorkspaceStore.setState({
-      selectedLayerId: '1',
-      layers: [{ ...firstLayer, id: '1', name: '后端地块', visible: true }],
-    });
+    useWorkspaceStore.setState({ selectedLayerId: '2' });
+    const backendLayers = [
+      {
+        id: 1,
+        name: '后端地块 A',
+        geometry_type: 'Polygon',
+        feature_count: 3,
+        crs: 'EPSG:3857',
+        bounds: {},
+        visible: true,
+        locked: false,
+        opacity: 1,
+        source_type: 'manual',
+        fields: [],
+        style: { color: '#4656a8' },
+        performance: {
+          feature_count: 3,
+          large_layer: false,
+          indexed: true,
+          recommended_mode: 'bbox',
+        },
+      },
+      {
+        id: 2,
+        name: '后端地块 B',
+        geometry_type: 'Polygon',
+        feature_count: 4,
+        crs: 'EPSG:3857',
+        bounds: {},
+        visible: true,
+        locked: false,
+        opacity: 1,
+        source_type: 'manual',
+        fields: [],
+        style: { color: '#8a6d3b' },
+        performance: {
+          feature_count: 4,
+          large_layer: false,
+          indexed: true,
+          recommended_mode: 'bbox',
+        },
+      },
+    ];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/api/v1/layers') || url.endsWith('/api/v1/jobs')) {
+      if (url.endsWith('/api/v1/layers')) {
+        return new Response(JSON.stringify(backendLayers), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/api/v1/jobs')) {
         return new Response(JSON.stringify([]), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -248,8 +300,13 @@ describe('App', () => {
 
     render(<App />);
     await loginToWorkbench();
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().layers.some((layer) => layer.id === '2')).toBe(true),
+    );
 
     fireEvent.click(screen.getByLabelText('导出成果'));
+    expect(await screen.findByRole('checkbox', { name: /后端地块 A/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /后端地块 B/ })).toBeChecked();
     fireEvent.click(await screen.findByRole('radio', { name: 'GDB' }));
     fireEvent.click(screen.getByRole('button', { name: '导出 GDB' }));
 
@@ -261,9 +318,76 @@ describe('App', () => {
     const requestInit = exportCall[1] as RequestInit;
     expect(JSON.parse(requestInit.body as string)).toEqual({
       format: 'gdb',
-      layer_ids: [1],
+      layer_ids: [2],
     });
     expect(await screen.findByRole('status', { name: /GDB 导出完成/ })).toBeInTheDocument();
+  });
+
+  it('creates a real polygon layer before drawing when only a demo layer is selected', async () => {
+    const createdLayer = {
+      id: 9,
+      name: '新建图斑图层 1',
+      geometry_type: 'Polygon',
+      feature_count: 0,
+      crs: 'EPSG:3857',
+      bounds: {},
+      visible: true,
+      locked: false,
+      opacity: 1,
+      source_type: 'manual',
+      fields: [],
+      style: { color: '#4656a8' },
+      performance: {
+        feature_count: 0,
+        large_layer: false,
+        indexed: true,
+        recommended_mode: 'bbox',
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/layers') && init?.method === 'POST') {
+        return new Response(JSON.stringify(createdLayer), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/v1/layers/9/features?')) {
+        return new Response(
+          JSON.stringify({
+            type: 'FeatureCollection',
+            features: [],
+            meta: { limit: 2000, returned: 0, truncated: false, cache_hit: false, strategy: 'postgis-bbox-gist' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/layers') || url.endsWith('/api/v1/jobs')) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
+    fireEvent.click(await screen.findByText('图斑编辑'));
+    fireEvent.click(screen.getByLabelText('绘制图斑'));
+
+    await waitFor(() => expect(useWorkspaceStore.getState().selectedLayerId).toBe('9'));
+    expect(useWorkspaceStore.getState().layers.find((layer) => layer.id === '9')).toMatchObject({
+      name: '新建图斑图层 1',
+      source: 'backend',
+      geometryType: 'Polygon',
+    });
+    const createCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]).endsWith('/api/v1/layers') && call[1]?.method === 'POST',
+    );
+    expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({ geometry_type: 'Polygon' });
   });
 
   it('opens local config dialog and writes editable runtime settings', async () => {

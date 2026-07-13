@@ -45,4 +45,24 @@ describe('workspace store feature focus', () => {
     });
     expect(useWorkspaceStore.getState().featureFocusRequest?.featureId).toBe('feature-point-031');
   });
+
+  it('upserts and selects a backend layer without duplicating it', () => {
+    const base = useWorkspaceStore.getState().layers[0];
+    const backendLayer = { ...base, id: '12', source: 'backend' as const, featureCount: 0 };
+
+    useWorkspaceStore.getState().upsertBackendLayer(backendLayer, true);
+    useWorkspaceStore.getState().upsertBackendLayer({ ...backendLayer, featureCount: 1 });
+
+    expect(useWorkspaceStore.getState().selectedLayerId).toBe('12');
+    expect(useWorkspaceStore.getState().layers.filter((layer) => layer.id === '12')).toHaveLength(1);
+    expect(useWorkspaceStore.getState().layers.find((layer) => layer.id === '12')?.featureCount).toBe(1);
+  });
+
+  it('cancels the drawing tool when leaving edit mode', () => {
+    useWorkspaceStore.getState().setWorkspaceMode('edit');
+    useWorkspaceStore.getState().setActiveTool('draw');
+    useWorkspaceStore.getState().setWorkspaceMode('browse');
+
+    expect(useWorkspaceStore.getState().activeTool).toBe('select');
+  });
 });

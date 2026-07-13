@@ -1,9 +1,15 @@
 import json
+from typing import Any
 
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Polygon, mapping
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.features.layers.repository import LayerRepository
+from app.features.layers.schemas import LayerSummary
 from app.features.map_features.schemas import FeatureGeometry, MapFeatureItem
+from app.models.layer import Layer
 from app.models.map_feature import MapFeature
 from app.shared.pagination import BBoxQuery
 
@@ -63,3 +69,69 @@ class MapFeatureRepository:
             )
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return features, next_cursor, has_more
+
+    async def get_layer(self, layer_id: int) -> Layer | None:
+        if self.session is None:
+            return None
+        return await self.session.get(Layer, layer_id)
+
+    async def create_polygon_feature(
+        self,
+        layer: Layer,
+        polygon: Polygon,
+        properties: dict[str, Any],
+    ) -> tuple[MapFeatureItem, LayerSummary]:
+        if self.session is None:
+            raise RuntimeError("数据库会话不可用。")
+        min_x, min_y, max_x, max_y = polygon.bounds
+        bbox = {
+            "min_x": float(min_x),
+            "min_y": float(min_y),
+            "max_x": float(max_x),
+            "max_y": float(max_y),
+        }
+        feature = MapFeature(
+            layer_id=layer.id,
+            source_feature_id=None,
+            geom=from_shape(polygon, srid=3857),
+            properties=properties,
+            bbox=bbox,
+            area=float(polygon.area),
+            perimeter=float(polygon.length),
+            revision=1,
+        )
+        previous_feature_count = layer.feature_count
+        previous_bounds = dict(layer.bounds or {})
+        self.session.add(feature)
+        layer.feature_count += 1
+        layer.bounds = self._merge_bounds(layer.bounds, bbox)
+        try:
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            layer.feature_count = previous_feature_count
+            layer.bounds = previous_bounds
+            raise
+        await self.session.refresh(feature)
+        await self.session.refresh(layer)
+        return (
+            MapFeatureItem(
+                id=feature.id,
+                geometry=FeatureGeometry.model_validate(mapping(polygon)),
+                properties=dict(feature.properties or {}),
+            ),
+            LayerRepository.to_summary(layer),
+        )
+
+    @staticmethod
+    def _merge_bounds(current: dict | None, added: dict[str, float]) -> dict[str, float]:
+        if not current or not all(
+            key in current for key in ("min_x", "min_y", "max_x", "max_y")
+        ):
+            return dict(added)
+        return {
+            "min_x": min(float(current["min_x"]), added["min_x"]),
+            "min_y": min(float(current["min_y"]), added["min_y"]),
+            "max_x": max(float(current["max_x"]), added["max_x"]),
+            "max_y": max(float(current["max_y"]), added["max_y"]),
+        }

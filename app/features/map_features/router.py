@@ -1,14 +1,18 @@
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.map_features.repository import MapFeatureRepository
-from app.features.map_features.schemas import FeatureCollectionResponse
+from app.features.map_features.schemas import (
+    FeatureCollectionResponse,
+    MapFeatureCreate,
+    MapFeatureCreateResponse,
+)
 from app.features.map_features.service import MapFeatureService
+from app.shared.database import get_session
 from app.shared.errors import bad_request
 from app.shared.pagination import BBoxQuery
-from app.shared.database import get_session
 
 router = APIRouter()
 
@@ -42,3 +46,23 @@ async def list_layer_features(
         )
     except ValueError as exc:
         raise bad_request(str(exc)) from exc
+
+
+@router.post(
+    "/layers/{layer_id}/features",
+    response_model=MapFeatureCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_layer_feature(
+    layer_id: int,
+    payload: MapFeatureCreate,
+    service: MapFeatureService = Depends(get_map_feature_service),
+) -> MapFeatureCreateResponse:
+    try:
+        return await service.create_polygon_feature(layer_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="目标图层不存在。") from exc
+    except ValueError as exc:
+        raise bad_request(str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

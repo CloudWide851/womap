@@ -4,6 +4,7 @@ import { StatusBar } from '../components/StatusBar';
 import { TopToolbar } from '../components/TopToolbar';
 import { FieldPanel } from '../features/fields/FieldPanel';
 import { JobPanel } from '../features/jobs/JobPanel';
+import { normalizeBackendLayer } from '../features/layers/backendLayer';
 import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
 import { FeatureNavigator } from '../features/map/FeatureNavigator';
@@ -13,12 +14,6 @@ import { PropertiesPanel } from '../features/properties/PropertiesPanel';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { getLayers } from '../services/api';
-import type {
-  GeometryType,
-  WorkspaceField,
-  WorkspaceFieldType,
-  WorkspaceLayer,
-} from '../types/workspace';
 
 interface WorkbenchLayoutProps {
   onOpenSettings: (section?: 'import-sources') => void;
@@ -41,26 +36,7 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
       void getLayers()
       .then((layers) => {
         if (!active) return;
-        const normalizedLayers: WorkspaceLayer[] = layers.map((layer) => ({
-            id: String(layer.id),
-            name: layer.name,
-            geometryType: normalizeGeometryType(layer.geometry_type),
-            featureCount: layer.feature_count,
-            visible: layer.visible,
-            locked: layer.locked,
-            opacity: layer.opacity,
-            color: layer.style.color ?? '#4656a8',
-            fields: layer.fields.map((field) => normalizeField(field)),
-            performance: {
-              featureCount: layer.feature_count,
-              largeLayer: layer.performance.large_layer,
-              indexed: layer.performance.indexed,
-              recommendedMode: 'bbox',
-              warning: layer.performance.warning,
-            },
-            source: 'backend' as const,
-            bounds: layer.bounds,
-          }));
+        const normalizedLayers = layers.map(normalizeBackendLayer);
         setBackendLayers(normalizedLayers);
         if (event) {
           const addedLayers = normalizedLayers.filter((layer) => !existingIds.has(layer.id));
@@ -112,30 +88,4 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
       <StatusBar />
     </div>
   );
-}
-
-function normalizeGeometryType(value: string): GeometryType {
-  if (value.includes('Point')) return 'Point';
-  if (value.includes('Line')) return 'LineString';
-  if (value.includes('Polygon')) return 'Polygon';
-  return 'Mixed';
-}
-
-function normalizeField(field: { name: string; type?: string }): WorkspaceField {
-  const rawType = field.type?.toLowerCase() ?? 'string';
-  const type: WorkspaceFieldType = rawType.includes('int') || rawType.includes('float')
-    ? 'number'
-    : rawType.includes('bool')
-      ? 'boolean'
-      : rawType.includes('date') || rawType.includes('time')
-        ? 'date'
-        : 'string';
-  return {
-    name: field.name,
-    alias: field.name,
-    type,
-    nullable: true,
-    example: '',
-    description: '导入字段',
-  };
 }

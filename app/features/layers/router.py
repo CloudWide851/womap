@@ -1,10 +1,10 @@
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.layers.repository import LayerRepository
-from app.features.layers.schemas import LayerSummary
+from app.features.layers.schemas import LayerCreate, LayerSummary
 from app.features.layers.service import LayerService
 from app.shared.database import get_session
 
@@ -20,3 +20,11 @@ async def get_layer_service(
 @router.get("", response_model=list[LayerSummary])
 async def list_layers(service: LayerService = Depends(get_layer_service)) -> list[LayerSummary]:
     return await service.list_layers()
+
+
+@router.post("", response_model=LayerSummary, status_code=status.HTTP_201_CREATED)
+async def create_layer(
+    payload: LayerCreate,
+    service: LayerService = Depends(get_layer_service),
+) -> LayerSummary:
+    return await service.create_layer(payload)

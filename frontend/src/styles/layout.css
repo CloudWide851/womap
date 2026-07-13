@@ -363,8 +363,6 @@
   .map-feature-trigger,
   .feature-nav-item,
   .attribute-close-button,
-  .login-instrument-reticle,
-  .login-instrument-scan,
   .settings-metric {
   transition:
     transform var(--motion-base) var(--ease-out-quart),
@@ -646,21 +644,6 @@
   margin: 0;
 }
 
-.opacity-row .ant-slider-handle {
-  top: 50%;
-  width: 18px;
-  height: 18px;
-  margin-top: 0;
-  transform: translate(-50%, -50%);
-}
-
-.opacity-row .ant-slider-handle::after {
-  width: 12px;
-  height: 12px;
-  inset-block-start: 3px;
-  inset-inline-start: 3px;
-}
-
 .feature-nav-section {
   content-visibility: auto;
   contain-intrinsic-size: 170px;
@@ -850,12 +833,63 @@
   top: 0;
   bottom: 0;
   z-index: 3;
+  width: 36px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+  transform: translateX(-50%);
+}
+
+.map-swipe-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
   width: 1px;
-  background: oklch(28% 0.08 270 / 0.72);
+  background: oklch(28% 0.08 270 / 0.78);
   box-shadow:
-    0 0 0 1px oklch(100% 0 0 / 0.72),
+    0 0 0 1px oklch(100% 0 0 / 0.78),
     0 0 0 2px oklch(28% 0.08 270 / 0.08);
-  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.map-swipe-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 30px;
+  height: 46px;
+  border: 1px solid oklch(100% 0 0 / 0.9);
+  border-radius: 6px;
+  background: oklch(28% 0.08 270 / 0.88);
+  box-shadow: 0 5px 14px oklch(20% 0.04 270 / 0.18);
+  transform: translate(-50%, -50%);
+  transition:
+    transform var(--motion-fast) var(--ease-out-quart),
+    opacity var(--motion-fast) var(--ease-out-quart);
+}
+
+.map-swipe-handle i {
+  width: 1px;
+  height: 16px;
+  background: oklch(100% 0 0 / 0.86);
+}
+
+.map-swipe-divider:hover .map-swipe-handle,
+.map-swipe-divider:focus-visible .map-swipe-handle {
+  transform: translate(-50%, -50%) scale(1.06);
+}
+
+.map-swipe-divider:focus-visible .map-swipe-handle {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .basemap-list {
@@ -1480,115 +1514,6 @@
   height: auto;
 }
 
-.login-instrument {
-  position: relative;
-  height: 118px;
-  margin: -2px 0 20px;
-  overflow: hidden;
-  border: 1px solid color-mix(in oklch, var(--color-line-strong) 14%, var(--color-line));
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--color-surface) 96%, var(--color-blue-soft));
-  contain: paint;
-}
-
-.login-instrument::before,
-.login-instrument::after,
-.login-instrument-grid,
-.login-instrument-grid::before,
-.login-instrument-grid::after {
-  position: absolute;
-  pointer-events: none;
-  content: "";
-}
-
-.login-instrument::before {
-  inset: 13px;
-  border: 1px solid oklch(48% 0.118 276 / 0.12);
-  border-radius: 6px;
-}
-
-.login-instrument::after {
-  inset: 25px 44px;
-  border-right: 1px solid oklch(48% 0.118 276 / 0.16);
-  border-left: 1px solid oklch(48% 0.118 276 / 0.16);
-  transform: skewX(-12deg);
-}
-
-.login-instrument-grid {
-  inset: 28px 26px;
-  border-top: 1px solid oklch(48% 0.118 276 / 0.12);
-  border-bottom: 1px solid oklch(48% 0.118 276 / 0.12);
-}
-
-.login-instrument-grid::before {
-  top: 50%;
-  right: 0;
-  left: 0;
-  height: 1px;
-  background: oklch(48% 0.118 276 / 0.14);
-}
-
-.login-instrument-grid::after {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  background: oklch(48% 0.118 276 / 0.14);
-}
-
-.login-instrument-scan {
-  position: absolute;
-  top: 50%;
-  right: 17%;
-  left: 17%;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--color-primary);
-  opacity: 0.62;
-  animation: login-scan 2400ms var(--ease-out-quart) infinite;
-}
-
-.login-instrument-reticle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: 54px;
-  height: 54px;
-  place-items: center;
-  border: 1px solid oklch(48% 0.118 276 / 0.18);
-  border-radius: 50%;
-  color: var(--color-primary);
-  background: oklch(100% 0 0 / 0.72);
-  animation: reticle-lock 1800ms var(--ease-out-quint) infinite;
-}
-
-.login-instrument-chip,
-.login-instrument-code {
-  position: absolute;
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 7px;
-  border: 1px solid var(--color-line);
-  border-radius: 6px;
-  color: var(--color-primary-strong);
-  background: var(--color-surface);
-  font-size: 0.66rem;
-  font-weight: 820;
-  letter-spacing: 0;
-}
-
-.login-instrument-chip {
-  top: 9px;
-  left: 9px;
-  gap: 5px;
-}
-
-.login-instrument-code {
-  right: 9px;
-  bottom: 9px;
-}
 
 .login-panel-heading {
   display: flex;
@@ -1984,30 +1909,6 @@
   }
 }
 
-@keyframes login-scan {
-  0% {
-    opacity: 0;
-    transform: translateY(-34px) scaleX(0.64);
-  }
-  18%,
-  76% {
-    opacity: 0.62;
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(34px) scaleX(1);
-  }
-}
-
-@keyframes reticle-lock {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-  }
-  46% {
-    transform: translate(-50%, -50%) scale(0.94);
-  }
-}
 
 @keyframes dropdown-pop {
   from {
@@ -2156,10 +2057,6 @@
 
   .login-panel {
     padding: 16px;
-  }
-
-  .login-instrument {
-    height: 96px;
   }
 
   .session-mode-group {
