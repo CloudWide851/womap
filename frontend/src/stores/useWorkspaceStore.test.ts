@@ -65,4 +65,15 @@ describe('workspace store feature focus', () => {
 
     expect(useWorkspaceStore.getState().activeTool).toBe('select');
   });
+
+  it('records repeated drawing activations without switching to select', () => {
+    useWorkspaceStore.getState().setWorkspaceMode('edit');
+    const before = useWorkspaceStore.getState().toolActivationSequence;
+
+    useWorkspaceStore.getState().setActiveTool('draw');
+    useWorkspaceStore.getState().setActiveTool('draw');
+
+    expect(useWorkspaceStore.getState().activeTool).toBe('draw');
+    expect(useWorkspaceStore.getState().toolActivationSequence).toBe(before + 2);
+  });
 });

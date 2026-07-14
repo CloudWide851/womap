@@ -12,6 +12,7 @@ import type {
 
 interface WorkspaceState {
   activeTool: string;
+  toolActivationSequence: number;
   workspaceMode: WorkspaceMode;
   selectedLayerId: string | null;
   selectedFeatureId: string | null;
@@ -90,11 +91,6 @@ const workspaceModeNotices: Record<WorkspaceMode, Omit<WorkspaceNotice, 'id'>> =
     tone: 'info',
     title: '已进入图斑编辑模式',
     detail: '选择绘制图斑后，可在地图中双击建立起点并完成 Polygon。',
-  },
-  swipe: {
-    tone: 'info',
-    title: '已进入两期影像卷帘模式',
-    detail: '左右侧栏已默认收缩，地图聚焦显示前后期底图对比。',
   },
   inspect: {
     tone: 'info',
@@ -344,6 +340,7 @@ function createFeaturePreviews(): FeatureAttributePreview[] {
 function createInitialState() {
   return {
     activeTool: 'select',
+    toolActivationSequence: 0,
     workspaceMode: 'browse' as WorkspaceMode,
     selectedLayerId: 'project-boundary',
     selectedFeatureId: 'feature-boundary-102',
@@ -357,7 +354,12 @@ function createInitialState() {
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   ...createInitialState(),
-  setActiveTool: (tool) => set({ activeTool: tool, notice: createToolNotice(tool) }),
+  setActiveTool: (tool) =>
+    set((state) => ({
+      activeTool: tool,
+      toolActivationSequence: state.toolActivationSequence + 1,
+      notice: createToolNotice(tool),
+    })),
   setWorkspaceMode: (mode) =>
     set((state) => ({
       workspaceMode: mode,

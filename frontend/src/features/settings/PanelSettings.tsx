@@ -40,7 +40,10 @@ interface PanelToggleProps {
 
 const PanelToggle = memo(function PanelToggle({ panel, enabled, onToggle }: PanelToggleProps) {
   const Icon = icons[panel];
-  const label = `${enabled ? '隐藏' : '显示'}${labels[panel]}面板`;
+  const label =
+    panel === 'performance'
+      ? `${enabled ? '停用' : '启用'}性能工具`
+      : `${enabled ? '隐藏' : '显示'}${labels[panel]}面板`;
   return (
     <Tooltip title={label}>
       <Button

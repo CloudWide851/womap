@@ -71,9 +71,10 @@ describe('App', () => {
     expect(screen.queryByText('图斑工坊')).not.toBeInTheDocument();
     expect(screen.getByText('工作空间')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '定位序列' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '地图工具' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '地图工具' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '字段概览' })).toBeInTheDocument();
-    expect(screen.getAllByText('性能').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '工具' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('性能内容')).not.toBeInTheDocument();
     expect(screen.getByLabelText('导入数据')).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '文件操作' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '工作模式' })).toBeInTheDocument();
@@ -89,15 +90,23 @@ describe('App', () => {
     expect(screen.getByLabelText(/当前短会话/)).toBeInTheDocument();
     expect(screen.getByLabelText('退出登录')).toBeInTheDocument();
 
+    useMapStore.getState().setSwipeEnabled(true);
+    useSettingsStore.getState().collapseSidePanelsForSwipe();
     fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
+    expect(screen.queryByRole('option', { name: '两期卷帘' })).not.toBeInTheDocument();
     fireEvent.click(await screen.findByText('图斑编辑'));
     expect(screen.getByRole('group', { name: '编辑工具' })).toBeInTheDocument();
     expect(screen.getByLabelText('绘制图斑')).toBeInTheDocument();
+    expect(useMapStore.getState().imagerySwipe.enabled).toBe(false);
+    expect(useSettingsStore.getState().panels.layers).toBe(true);
   });
 
   it('converts coordinates from the map tools panel', async () => {
     render(<App />);
     await loginToWorkbench();
+
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '地图工具' }));
 
     fireEvent.change(screen.getByLabelText('坐标 X 或经度'), {
       target: { value: '113.2644' },
@@ -113,17 +122,52 @@ describe('App', () => {
     expect(screen.getByRole('status', { name: /坐标转换完成/ })).toBeInTheDocument();
   });
 
+  it('unmounts toolbox content when closed and disables performance from settings', async () => {
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    expect(await screen.findByRole('menuitem', { name: '地图工具' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '两期卷帘' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '性能' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: '性能' }));
+    expect(screen.getByLabelText('性能内容')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => expect(screen.queryByTestId('map-toolbox-popup')).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '地图工具' }));
+    expect(screen.getByLabelText('地图工具内容')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭工具' }));
+    await waitFor(() => expect(screen.queryByLabelText('地图工具内容')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('map-toolbox-popup')).not.toBeInTheDocument();
+
+    useSettingsStore.getState().togglePanel('performance');
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    expect(await screen.findByRole('menuitem', { name: '性能' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('map-toolbox-popup')).not.toBeInTheDocument());
+  });
+
   it('enables two-period imagery swipe controls', async () => {
     render(<App />);
     await loginToWorkbench();
 
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
-    fireEvent.click(await screen.findByText('两期卷帘'));
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '两期卷帘' }));
 
     expect(screen.queryByText('工作空间')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '字段概览' })).not.toBeInTheDocument();
     expect(screen.getByText('卷帘 50%')).toBeInTheDocument();
-    expect(screen.getByRole('status', { name: /已进入两期影像卷帘模式/ })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /卷帘已开启/ })).toBeInTheDocument();
     expect(useMapStore.getState().imagerySwipe).toMatchObject({
       enabled: true,
       beforeBasemapId: 'amap-vector',
@@ -131,10 +175,16 @@ describe('App', () => {
       position: 50,
     });
     expect(useSettingsStore.getState().panels.layers).toBe(false);
+    expect(useSettingsStore.getState().panels.performance).toBe(true);
     expect(screen.queryByRole('group', { name: '编辑工具' })).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: '工作模式' }));
-    fireEvent.click(await screen.findByText('浏览查看'));
+    fireEvent.click(screen.getByRole('button', { name: '关闭工具' }));
+    await waitFor(() => expect(screen.queryByTestId('map-toolbox-popup')).not.toBeInTheDocument());
+    expect(useMapStore.getState().imagerySwipe.enabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '两期卷帘' }));
+    fireEvent.click(await screen.findByRole('switch', { name: '启用两期影像卷帘' }));
 
     await waitFor(() => expect(screen.getByText('工作空间')).toBeInTheDocument());
     expect(useMapStore.getState().imagerySwipe.enabled).toBe(false);
@@ -323,7 +373,7 @@ describe('App', () => {
     expect(await screen.findByRole('status', { name: /GDB 导出完成/ })).toBeInTheDocument();
   });
 
-  it('creates a real polygon layer before drawing when only a demo layer is selected', async () => {
+  it('keeps drawing active, retries layer creation, and handles blocked targets', async () => {
     const createdLayer = {
       id: 9,
       name: '新建图斑图层 1',
@@ -344,9 +394,17 @@ describe('App', () => {
         recommended_mode: 'bbox',
       },
     };
+    let createAttempts = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/v1/layers') && init?.method === 'POST') {
+        createAttempts += 1;
+        if (createAttempts === 1) {
+          return new Response(JSON.stringify({ detail: 'forced create failure' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
         return new Response(JSON.stringify(createdLayer), {
           status: 201,
           headers: { 'Content-Type': 'application/json' },
@@ -378,7 +436,17 @@ describe('App', () => {
     fireEvent.click(await screen.findByText('图斑编辑'));
     fireEvent.click(screen.getByLabelText('绘制图斑'));
 
+    expect(await screen.findByRole('status', { name: /图斑图层创建失败/ })).toBeInTheDocument();
+    expect(useWorkspaceStore.getState().activeTool).toBe('draw');
+    expect(document.querySelector('.map-shell')).toHaveClass('is-drawing');
+
+    const firstActivation = useWorkspaceStore.getState().toolActivationSequence;
+    fireEvent.click(screen.getByLabelText('绘制图斑'));
+
     await waitFor(() => expect(useWorkspaceStore.getState().selectedLayerId).toBe('9'));
+    expect(createAttempts).toBe(2);
+    expect(useWorkspaceStore.getState().activeTool).toBe('draw');
+    expect(useWorkspaceStore.getState().toolActivationSequence).toBe(firstActivation + 1);
     expect(useWorkspaceStore.getState().layers.find((layer) => layer.id === '9')).toMatchObject({
       name: '新建图斑图层 1',
       source: 'backend',
@@ -388,6 +456,23 @@ describe('App', () => {
       (call) => String(call[0]).endsWith('/api/v1/layers') && call[1]?.method === 'POST',
     );
     expect(JSON.parse(createCall?.[1]?.body as string)).toEqual({ geometry_type: 'Polygon' });
+
+    useWorkspaceStore.getState().upsertBackendLayer(
+      {
+        ...useWorkspaceStore.getState().layers.find((layer) => layer.id === '9')!,
+        id: '10',
+        name: '受限点图层',
+        geometryType: 'Point',
+      },
+      true,
+    );
+    fireEvent.click(screen.getByLabelText('绘制图斑'));
+    expect(await screen.findByRole('status', { name: /无法在当前图层绘制/ })).toBeInTheDocument();
+    expect(useWorkspaceStore.getState().activeTool).toBe('draw');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useWorkspaceStore.getState().activeTool).toBe('select');
+    expect(document.querySelector('.map-shell')).not.toHaveClass('is-drawing');
   });
 
   it('opens local config dialog and writes editable runtime settings', async () => {
@@ -458,7 +543,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '工作台设置' })).toBeInTheDocument();
     expect(screen.getByLabelText('返回工作台')).toBeInTheDocument();
-    expect(screen.getByLabelText('隐藏性能面板')).toBeInTheDocument();
+    expect(screen.getByLabelText('停用性能工具')).toBeInTheDocument();
     expect(screen.getByText('登录安全')).toBeInTheDocument();
     expect(screen.getByText('短会话')).toBeInTheDocument();
     expect(screen.queryByLabelText('新增图层')).not.toBeInTheDocument();

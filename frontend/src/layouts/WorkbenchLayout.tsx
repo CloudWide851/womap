@@ -8,9 +8,8 @@ import { normalizeBackendLayer } from '../features/layers/backendLayer';
 import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
 import { FeatureNavigator } from '../features/map/FeatureNavigator';
-import { MapToolsPanel } from '../features/map/MapToolsPanel';
-import { PerformancePanel } from '../features/performance/PerformancePanel';
 import { PropertiesPanel } from '../features/properties/PropertiesPanel';
+import { useMapStore } from '../stores/useMapStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { getLayers } from '../services/api';
@@ -21,8 +20,7 @@ interface WorkbenchLayoutProps {
 
 export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
   const panels = useSettingsStore((state) => state.panels);
-  const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
-  const swipeFocused = workspaceMode === 'swipe';
+  const swipeFocused = useMapStore((state) => state.imagerySwipe.enabled);
   const setBackendLayers = useWorkspaceStore((state) => state.setBackendLayers);
 
   useEffect(() => {
@@ -69,7 +67,6 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
             <>
               {panels.layers && <LayerPanel />}
               {panels.layers && <FeatureNavigator />}
-              <MapToolsPanel />
               {panels.jobs && <JobPanel />}
             </>
           )}
@@ -80,7 +77,6 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
             <>
               {panels.properties && <PropertiesPanel />}
               {panels.fields && <FieldPanel />}
-              {panels.performance && <PerformancePanel />}
             </>
           )}
         </aside>

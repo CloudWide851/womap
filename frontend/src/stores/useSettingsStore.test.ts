@@ -42,4 +42,12 @@ describe('map settings stores', () => {
     expect(useSettingsStore.getState().panels).toEqual(before);
     expect(useSettingsStore.getState().swipePanelSnapshot).toBeNull();
   });
+
+  it('does not rewrite the performance tool preference while focusing swipe', () => {
+    expect(useSettingsStore.getState().panels.performance).toBe(true);
+
+    useSettingsStore.getState().collapseSidePanelsForSwipe();
+
+    expect(useSettingsStore.getState().panels.performance).toBe(true);
+  });
 });

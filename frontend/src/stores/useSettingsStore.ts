@@ -102,7 +102,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
           jobs: false,
           properties: false,
           fields: false,
-          performance: false,
         },
       };
     }),

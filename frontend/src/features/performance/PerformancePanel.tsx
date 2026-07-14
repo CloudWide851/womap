@@ -43,7 +43,7 @@ export function PerformancePanel() {
   const layer = layers.find((item) => item.id === selectedLayerId);
 
   return (
-    <section className="panel-section">
+    <section className="map-toolbox-section map-toolbox-performance" aria-label="性能内容">
       <div className="section-title">
         <Gauge size={16} />
         <span>性能</span>

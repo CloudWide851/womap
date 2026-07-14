@@ -391,11 +391,35 @@ function Start-DetachedPowerShell {
         [string]$Name,
         [string]$EncodedCommand
     )
-    [void](Start-Process `
+    return (Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $EncodedCommand) `
         -WindowStyle Minimized `
         -PassThru)
+}
+
+function Stop-CapturedProcessTree {
+    param([System.Diagnostics.Process]$CapturedProcess)
+    if ($null -eq $CapturedProcess) {
+        return
+    }
+
+    $current = Get-Process -Id $CapturedProcess.Id -ErrorAction SilentlyContinue
+    if ($null -eq $current) {
+        return
+    }
+    try {
+        $startDelta = [Math]::Abs(
+            ($current.StartTime.ToUniversalTime() - $CapturedProcess.StartTime.ToUniversalTime()).TotalSeconds
+        )
+        if ($startDelta -gt 2) {
+            return
+        }
+    }
+    catch {
+        return
+    }
+    Stop-ProcessTree -RootProcessId $current.Id
 }
 
 function Start-ManagedProcess {
@@ -448,7 +472,16 @@ catch {
     Set-Content -LiteralPath (Join-Path $Script:LogRoot ("{0}.command.ps1" -f $Name)) -Value $script -Encoding UTF8
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
     Remove-ServiceRecord $Name
-    Start-DetachedPowerShell -Name $Name -EncodedCommand $encoded
+    $launchedProcess = $null
+    try {
+        $launchedProcess = Start-DetachedPowerShell -Name $Name -EncodedCommand $encoded
+    }
+    catch {
+        Stop-CapturedProcessTree -CapturedProcess $launchedProcess
+        Remove-ServiceRecord $Name
+        Write-Check $Name "missing" ("process could not start; log={0}" -f $logFile)
+        throw
+    }
 
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline) {
@@ -465,6 +498,7 @@ catch {
         }
         Start-Sleep -Milliseconds 500
     }
+    Stop-CapturedProcessTree -CapturedProcess $launchedProcess
     Remove-ServiceRecord $Name
     Write-Check $Name "missing" ("process did not become ready; log={0}" -f $logFile)
     throw ("{0} failed to stay running" -f $Name)
@@ -482,6 +516,35 @@ function Start-Web {
         -Name "web" `
         -WorkingDirectory (Join-Path $Script:Root "frontend") `
         -PowerShellLine ("pnpm dev --host {0} --port {1}" -f $Script:WebHost, $Script:WebPort)
+}
+
+function Start-DevelopmentServices {
+    param(
+        [scriptblock]$ApiStartAction = { Start-Api },
+        [scriptblock]$WebStartAction = { Start-Web }
+    )
+    $failures = @()
+    $services = @(
+        @{ Name = "api"; Action = $ApiStartAction },
+        @{ Name = "web"; Action = $WebStartAction }
+    )
+
+    foreach ($service in $services) {
+        try {
+            $null = & $service.Action
+        }
+        catch {
+            $message = $_.Exception.Message
+            $failures += ("{0}: {1}" -f $service.Name, $message)
+            Write-Check $service.Name "failed" $message
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        Write-Color ("Development startup failed: {0}" -f ($failures -join "; ")) Red
+        return 1
+    }
+    return 0
 }
 
 function Stop-ManagedProcess {
@@ -642,7 +705,7 @@ function Invoke-CommandName {
         "doctor" { return (Invoke-Doctor) }
         "api" { Start-Api; return 0 }
         "web" { Start-Web; return 0 }
-        "dev" { Start-Api; Start-Web; return 0 }
+        "dev" { return (Start-DevelopmentServices) }
         "open" { Open-WebUrl; return 0 }
         "stop" { Stop-AllManagedServices; return 0 }
         "test" { Invoke-Tests; return 0 }
@@ -687,12 +750,14 @@ function Invoke-Tui {
     }
 }
 
-try {
-    Initialize-State
-    $exitCode = Invoke-CommandName $Command
-    exit $exitCode
-}
-catch {
-    Write-Color $_.Exception.Message Red
-    exit 1
+if ($MyInvocation.InvocationName -ne ".") {
+    try {
+        Initialize-State
+        $exitCode = Invoke-CommandName $Command
+        exit $exitCode
+    }
+    catch {
+        Write-Color $_.Exception.Message Red
+        exit 1
+    }
 }

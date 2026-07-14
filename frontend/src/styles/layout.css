@@ -783,6 +783,110 @@
   background: transparent !important;
 }
 
+.map-shell.is-drawing .map-frame,
+.map-shell.is-drawing .map-frame .ol-viewport,
+.map-shell.is-drawing .map-frame canvas {
+  cursor: url("/cursors/draw-pen.svg") 4 20, crosshair !important;
+}
+
+.map-toolbox {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  right: 12px;
+}
+
+.map-toolbox-trigger.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding-inline: 9px;
+  border-color: color-mix(in oklch, var(--color-line-strong) 18%, var(--color-line));
+  border-radius: 6px;
+  color: var(--color-primary-strong);
+  background: var(--color-surface);
+  box-shadow: 0 5px 16px oklch(28% 0.038 265 / 0.09);
+  font-size: 0.72rem;
+  font-weight: 740;
+}
+
+.map-toolbox-trigger.ant-btn > span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.map-toolbox-popup {
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 7px;
+  background: var(--color-surface);
+  box-shadow: 0 14px 38px oklch(24% 0.04 270 / 0.16);
+  contain: content;
+}
+
+.map-toolbox-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 5px 6px 5px 10px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.map-toolbox-popup-header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.map-toolbox-popup-header span {
+  color: var(--color-muted);
+  font-size: 0.63rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+}
+
+.map-toolbox-popup-header strong {
+  color: var(--color-ink);
+  font-size: 0.78rem;
+}
+
+.map-toolbox-dropdown .ant-dropdown-menu {
+  padding: 4px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.map-toolbox-dropdown .ant-dropdown-menu-item {
+  min-height: 30px;
+  border-radius: 5px;
+  color: var(--color-ink);
+  font-size: 0.72rem;
+}
+
+.map-toolbox-dropdown .ant-dropdown-menu-item-selected {
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
+}
+
+.map-toolbox-content {
+  padding: 8px;
+  border-top: 1px solid var(--color-line);
+}
+
+.map-toolbox-section {
+  display: grid;
+  gap: 7px;
+}
+
+.map-toolbox-performance .section-title {
+  margin-bottom: 1px;
+}
+
 .map-floating-strip {
   position: absolute;
   z-index: 3;
@@ -925,11 +1029,6 @@
   background: var(--surface-panel-alt);
   cursor: not-allowed;
   opacity: 0.72;
-}
-
-.map-tools-panel-section {
-  display: grid;
-  gap: 8px;
 }
 
 .compact-heading {

@@ -33,6 +33,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import type { BasemapProvider, FeatureAttributePreview, WorkspaceLayer } from '../../types/workspace';
 import { normalizeBackendLayer } from '../layers/backendLayer';
+import { MapToolbox } from './MapToolbox';
 import { MapSwipeDivider } from './MapSwipeDivider';
 import { createFirstVertexInteraction, resolveDrawingTarget } from './polygonEditing';
 
@@ -201,6 +202,7 @@ export function MapCanvas() {
   const basemaps = useSettingsStore((state) => state.basemaps);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const activeTool = useWorkspaceStore((state) => state.activeTool);
+  const toolActivationSequence = useWorkspaceStore((state) => state.toolActivationSequence);
   const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
   const selectedFeatureId = useWorkspaceStore((state) => state.selectedFeatureId);
   const featureFocusRequest = useWorkspaceStore((state) => state.featureFocusRequest);
@@ -403,7 +405,6 @@ export function MapCanvas() {
         title: '无法在当前图层绘制',
         detail: resolution.message,
       });
-      setActiveTool('select');
       return;
     }
     if (resolution.kind === 'ready') {
@@ -437,12 +438,19 @@ export function MapCanvas() {
           title: '图斑图层创建失败',
           detail: error instanceof Error ? error.message : '后端未能创建 Polygon 图层。',
         });
-        setActiveTool('select');
       })
       .finally(() => {
         creatingLayerRef.current = false;
       });
-  }, [activeTool, layers, selectedLayerId, setActiveTool, showNotice, upsertBackendLayer, workspaceMode]);
+  }, [
+    activeTool,
+    layers,
+    selectedLayerId,
+    showNotice,
+    toolActivationSequence,
+    upsertBackendLayer,
+    workspaceMode,
+  ]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -580,6 +588,7 @@ export function MapCanvas() {
     drawingTargetLayerId,
     mapReady,
     showNotice,
+    toolActivationSequence,
     upsertBackendLayer,
     workspaceMode,
   ]);
@@ -781,8 +790,11 @@ export function MapCanvas() {
   }, [imagerySwipe.enabled, imagerySwipe.position]);
 
   return (
-    <main className="map-shell">
+    <main
+      className={`map-shell ${workspaceMode === 'edit' && activeTool === 'draw' ? 'is-drawing' : ''}`}
+    >
       <div className="map-frame" ref={mapRef} />
+      <MapToolbox />
       <div className="map-floating-strip">
         <Tooltip title="当前底图">
           <span>

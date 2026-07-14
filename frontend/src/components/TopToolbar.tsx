@@ -65,7 +65,6 @@ const tools = [
 const workspaceModeOptions: Array<{ label: string; value: WorkspaceMode }> = [
   { value: 'browse', label: '浏览查看' },
   { value: 'edit', label: '图斑编辑' },
-  { value: 'swipe', label: '两期卷帘' },
   { value: 'inspect', label: '属性查看' },
 ];
 
@@ -248,12 +247,10 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
+  const swipeEnabled = useMapStore((state) => state.imagerySwipe.enabled);
   const setSelectedBasemap = useMapStore((state) => state.setSelectedBasemap);
   const setSwipeEnabled = useMapStore((state) => state.setSwipeEnabled);
   const basemaps = useSettingsStore((state) => state.basemaps);
-  const collapseSidePanelsForSwipe = useSettingsStore(
-    (state) => state.collapseSidePanelsForSwipe,
-  );
   const restoreSidePanelsAfterSwipe = useSettingsStore(
     (state) => state.restoreSidePanelsAfterSwipe,
   );
@@ -290,26 +287,20 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   );
 
   const handleModeChange = (nextMode: WorkspaceMode) => {
-    const leavingSwipe = workspaceMode === 'swipe' && nextMode !== 'swipe';
-    setWorkspaceMode(nextMode);
-    if (nextMode === 'swipe') {
-      setSwipeEnabled(true);
-      collapseSidePanelsForSwipe();
-      return;
-    }
-    if (leavingSwipe) {
+    if (swipeEnabled) {
       setSwipeEnabled(false);
       restoreSidePanelsAfterSwipe();
     }
+    setWorkspaceMode(nextMode);
   };
 
   const handleToolSelect = (toolKey: string) => {
-    if (workspaceMode === 'swipe') {
+    if (swipeEnabled) {
       setSwipeEnabled(false);
       restoreSidePanelsAfterSwipe();
     }
     setWorkspaceMode('edit');
-    setActiveTool(toolKey === 'draw' && activeTool === 'draw' ? 'select' : toolKey);
+    setActiveTool(toolKey);
   };
 
   const handleBasemapChange = (basemapId: string) => {
