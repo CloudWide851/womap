@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 
 import { StatusBar } from '../components/StatusBar';
 import { TopToolbar } from '../components/TopToolbar';
 import { FieldPanel } from '../features/fields/FieldPanel';
 import { JobPanel } from '../features/jobs/JobPanel';
-import { normalizeBackendLayer } from '../features/layers/backendLayer';
 import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
 import { FeatureNavigator } from '../features/map/FeatureNavigator';
@@ -12,7 +11,13 @@ import { PropertiesPanel } from '../features/properties/PropertiesPanel';
 import { useMapStore } from '../stores/useMapStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
-import { getLayers } from '../services/api';
+import { useWorkspaceContextStore } from '../stores/useWorkspaceContextStore';
+
+const SpatialAnalysisDrawer = lazy(() =>
+  import('../features/spatial-analysis/SpatialAnalysisDrawer').then((module) => ({
+    default: module.SpatialAnalysisDrawer,
+  })),
+);
 
 interface WorkbenchLayoutProps {
   onOpenSettings: (section?: 'import-sources') => void;
@@ -21,42 +26,61 @@ interface WorkbenchLayoutProps {
 export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
   const panels = useSettingsStore((state) => state.panels);
   const swipeFocused = useMapStore((state) => state.imagerySwipe.enabled);
-  const setBackendLayers = useWorkspaceStore((state) => state.setBackendLayers);
+  const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
+  const viewCenter = useMapStore((state) => state.viewCenter);
+  const zoom = useMapStore((state) => state.zoom);
+  const layers = useWorkspaceStore((state) => state.layers);
+  const currentWorkspace = useWorkspaceContextStore((state) => state.current);
+  const initializeWorkspaces = useWorkspaceContextStore((state) => state.initialize);
+  const refreshCatalog = useWorkspaceContextStore((state) => state.refreshCatalog);
+  const switchWorkspace = useWorkspaceContextStore((state) => state.switchWorkspace);
+  const syncRuntimeLayer = useWorkspaceContextStore((state) => state.syncRuntimeLayer);
+  const markDirty = useWorkspaceContextStore((state) => state.markDirty);
 
   useEffect(() => {
-    let active = true;
-    const loadLayers = (event?: Event) => {
-      const existingIds = new Set(
-        useWorkspaceStore.getState().layers
-          .filter((layer) => layer.source === 'backend')
-          .map((layer) => layer.id),
-      );
-      void getLayers()
-      .then((layers) => {
-        if (!active) return;
-        const normalizedLayers = layers.map(normalizeBackendLayer);
-        setBackendLayers(normalizedLayers);
-        if (event) {
-          const addedLayers = normalizedLayers.filter((layer) => !existingIds.has(layer.id));
-          const newestLayer = addedLayers[addedLayers.length - 1];
-          if (newestLayer?.bounds) {
-            window.dispatchEvent(
-              new CustomEvent('womap:focus-backend-layer', {
-                detail: { name: newestLayer.name, bounds: newestLayer.bounds },
-              }),
-            );
-          }
-        }
-      })
-      .catch(() => undefined);
+    void initializeWorkspaces();
+  }, [initializeWorkspaces]);
+
+  useEffect(() => {
+    const handleLayersChanged = () => {
+      const current = useWorkspaceContextStore.getState().current;
+      if (current?.is_default && !useWorkspaceContextStore.getState().dirty) {
+        void switchWorkspace(current.id);
+      } else {
+        void refreshCatalog();
+      }
     };
-    loadLayers();
-    window.addEventListener('womap:layers-changed', loadLayers);
+    window.addEventListener('womap:layers-changed', handleLayersChanged);
     return () => {
-      active = false;
-      window.removeEventListener('womap:layers-changed', loadLayers);
+      window.removeEventListener('womap:layers-changed', handleLayersChanged);
     };
-  }, [setBackendLayers]);
+  }, [refreshCatalog, switchWorkspace]);
+
+  useEffect(() => {
+    for (const layer of layers.filter((item) => item.source === 'backend')) {
+      syncRuntimeLayer(layer.id, layer.visible, layer.opacity);
+    }
+  }, [layers, syncRuntimeLayer]);
+
+  useEffect(() => {
+    if (!currentWorkspace) return;
+    const changed =
+      currentWorkspace.default_basemap !== selectedBasemapId ||
+      currentWorkspace.view.zoom !== zoom ||
+      currentWorkspace.view.center[0] !== viewCenter[0] ||
+      currentWorkspace.view.center[1] !== viewCenter[1];
+    if (changed) markDirty();
+  }, [currentWorkspace, markDirty, selectedBasemapId, viewCenter, zoom]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!useWorkspaceContextStore.getState().dirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   return (
     <div className="workbench">
@@ -82,6 +106,9 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
         </aside>
       </div>
       <StatusBar />
+      <Suspense fallback={null}>
+        <SpatialAnalysisDrawer />
+      </Suspense>
     </div>
   );
 }

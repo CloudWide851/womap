@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -7,6 +7,7 @@ JobState = Literal["queued", "running", "interrupted", "done", "failed", "unknow
 
 
 class JobProgressDetail(BaseModel):
+    kind: Literal["import"] = "import"
     stage: str = "queued"
     source_id: str | None = None
     dataset_id: str | None = None
@@ -23,11 +24,42 @@ class JobProgressDetail(BaseModel):
     error: str | None = None
 
 
+class WorkspacePackageJobProgressDetail(BaseModel):
+    kind: Literal["workspace-package"] = "workspace-package"
+    stage: str = "queued"
+    operation: Literal["export", "import"] = "export"
+    workspace_id: int | None = None
+    current_layer: str | None = None
+    processed_features: int = 0
+    total_features: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    artifact_name: str | None = None
+    error: str | None = None
+
+
+class SpatialAnalysisJobProgressDetail(BaseModel):
+    kind: Literal["spatial-analysis"] = "spatial-analysis"
+    stage: str = "queued"
+    workspace_id: int | None = None
+    target_feature_id: int | None = None
+    processed_layers: int = 0
+    total_layers: int = 0
+    matched_features: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+JobDetail = Annotated[
+    JobProgressDetail | WorkspacePackageJobProgressDetail | SpatialAnalysisJobProgressDetail,
+    Field(discriminator="kind"),
+]
+
+
 class JobStatus(BaseModel):
     id: str
     job_type: str = "unknown"
     status: JobState = "unknown"
     progress: int = 0
     message: str | None = "任务尚未接入执行队列。"
-    detail: JobProgressDetail = Field(default_factory=JobProgressDetail)
+    detail: JobDetail = Field(default_factory=JobProgressDetail)
     result: dict = Field(default_factory=dict)

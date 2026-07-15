@@ -3,6 +3,7 @@ import {
   DatabaseZap,
   Download,
   Blend,
+  FolderKanban,
   Hand,
   Import,
   MapPinned,
@@ -45,10 +46,17 @@ import { formatRemainingTime, useAuthStore } from '../stores/useAuthStore';
 import { useMapStore } from '../stores/useMapStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
+import { useWorkspaceContextStore } from '../stores/useWorkspaceContextStore';
+import { useSpatialAnalysisStore } from '../stores/useSpatialAnalysisStore';
 import type { WorkspaceMode } from '../types/workspace';
 
 const ImportCenter = lazy(() =>
   import('../features/imports/ImportCenter').then((module) => ({ default: module.ImportCenter })),
+);
+const WorkspaceDrawer = lazy(() =>
+  import('../features/workspaces/WorkspaceDrawer').then((module) => ({
+    default: module.WorkspaceDrawer,
+  })),
 );
 
 const tools = [
@@ -66,6 +74,7 @@ const workspaceModeOptions: Array<{ label: string; value: WorkspaceMode }> = [
   { value: 'browse', label: '浏览查看' },
   { value: 'edit', label: '图斑编辑' },
   { value: 'inspect', label: '属性查看' },
+  { value: 'analysis', label: '空间分析' },
 ];
 
 interface ToolbarToolButtonProps {
@@ -244,6 +253,13 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const setWorkspaceMode = useWorkspaceStore((state) => state.setWorkspaceMode);
   const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
+  const currentWorkspace = useWorkspaceContextStore((state) => state.current);
+  const workspaceDirty = useWorkspaceContextStore((state) => state.dirty);
+  const workspaceDrawerOpen = useWorkspaceContextStore((state) => state.drawerOpen);
+  const setWorkspaceDrawerOpen = useWorkspaceContextStore((state) => state.setDrawerOpen);
+  const saveCurrentWorkspace = useWorkspaceContextStore((state) => state.saveCurrent);
+  const enterSpatialAnalysis = useSpatialAnalysisStore((state) => state.enter);
+  const exitSpatialAnalysis = useSpatialAnalysisStore((state) => state.exit);
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const selectedBasemapId = useMapStore((state) => state.selectedBasemapId);
@@ -291,7 +307,29 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
       setSwipeEnabled(false);
       restoreSidePanelsAfterSwipe();
     }
+    if (nextMode === 'analysis') {
+      enterSpatialAnalysis();
+      return;
+    }
+    if (workspaceMode === 'analysis') exitSpatialAnalysis();
     setWorkspaceMode(nextMode);
+  };
+
+  const handleWorkspaceSave = async () => {
+    try {
+      await saveCurrentWorkspace();
+      showNotice({
+        tone: 'success',
+        title: '工作空间已保存',
+        detail: `${currentWorkspace?.name ?? '当前工作空间'} 已写入数据库。`,
+      });
+    } catch (error) {
+      showNotice({
+        tone: 'warning',
+        title: '工作空间保存失败',
+        detail: error instanceof Error ? error.message : '保存服务返回未知错误。',
+      });
+    }
   };
 
   const handleToolSelect = (toolKey: string) => {
@@ -299,6 +337,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
       setSwipeEnabled(false);
       restoreSidePanelsAfterSwipe();
     }
+    if (workspaceMode === 'analysis') exitSpatialAnalysis();
     setWorkspaceMode('edit');
     setActiveTool(toolKey);
   };
@@ -432,7 +471,8 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
             className="tool-icon-button"
             label="保存项目"
             icon={<Save size={17} />}
-            onClick={() => notifyCommand('save-project')}
+            disabled={!currentWorkspace || !workspaceDirty}
+            onClick={() => void handleWorkspaceSave()}
           />
           <Popover
             trigger="click"
@@ -468,6 +508,15 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
             onChange={handleModeChange}
           />
         </span>
+
+        <Button
+          size="small"
+          className="toolbar-workspace-entry"
+          icon={<FolderKanban size={15} />}
+          onClick={() => setWorkspaceDrawerOpen(true)}
+        >
+          {currentWorkspace?.name ?? '工作空间'}{workspaceDirty ? ' *' : ''}
+        </Button>
 
         <span className="toolbar-cluster toolbar-cluster-basemap" role="group" aria-label="地图底图">
           <MapPinned size={15} aria-hidden="true" />
@@ -549,6 +598,12 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
               setImportOpen(false);
               onOpenSettings('import-sources');
             }}
+          />
+        )}
+        {workspaceDrawerOpen && (
+          <WorkspaceDrawer
+            open={workspaceDrawerOpen}
+            onClose={() => setWorkspaceDrawerOpen(false)}
           />
         )}
       </Suspense>

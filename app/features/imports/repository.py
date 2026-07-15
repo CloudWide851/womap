@@ -120,6 +120,9 @@ class ImportRepository:
             performance={
                 "source_id": dataset.source_id,
                 "dataset_id": dataset.id,
+                "container": dataset.container,
+                "relative_path": dataset.relative_path,
+                "layer_name": dataset.layer_name,
                 "fingerprint": dataset.fingerprint,
                 "staging": True,
                 "import_job_id": job_id,

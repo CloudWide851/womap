@@ -6,6 +6,8 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useMapStore } from '../stores/useMapStore';
 import { useJobsStore } from '../stores/useJobsStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { useSpatialAnalysisStore } from '../stores/useSpatialAnalysisStore';
+import { useWorkspaceContextStore } from '../stores/useWorkspaceContextStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 
 afterEach(() => {
@@ -15,6 +17,8 @@ afterEach(() => {
   useMapStore.getState().reset();
   useJobsStore.getState().reset();
   useSettingsStore.getState().reset();
+  useSpatialAnalysisStore.getState().reset();
+  useWorkspaceContextStore.getState().reset();
   useWorkspaceStore.getState().reset();
   cleanup();
 });
@@ -69,7 +73,7 @@ describe('App', () => {
     expect(screen.getByTestId('brand-logo')).toBeInTheDocument();
     expect(screen.queryByText('WOMAP')).not.toBeInTheDocument();
     expect(screen.queryByText('图斑工坊')).not.toBeInTheDocument();
-    expect(screen.getByText('工作空间')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '工作空间' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '定位序列' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '地图工具' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '字段概览' })).toBeInTheDocument();
@@ -157,6 +161,22 @@ describe('App', () => {
     await waitFor(() => expect(screen.queryByTestId('map-toolbox-popup')).not.toBeInTheDocument());
   });
 
+  it('enters and exits spatial analysis from the map tools menu', async () => {
+    render(<App />);
+    await loginToWorkbench();
+
+    fireEvent.click(screen.getByRole('button', { name: '工具' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '空间分析' }));
+
+    expect(useWorkspaceStore.getState().workspaceMode).toBe('analysis');
+    expect(screen.getByRole('button', { name: '退出空间分析' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: '编辑工具' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '退出空间分析' }));
+    expect(useWorkspaceStore.getState().workspaceMode).toBe('browse');
+    expect(screen.queryByRole('button', { name: '退出空间分析' })).not.toBeInTheDocument();
+  });
+
   it('enables two-period imagery swipe controls', async () => {
     render(<App />);
     await loginToWorkbench();
@@ -164,7 +184,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '工具' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '两期卷帘' }));
 
-    expect(screen.queryByText('工作空间')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '工作空间' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '字段概览' })).not.toBeInTheDocument();
     expect(screen.getByText('卷帘 50%')).toBeInTheDocument();
     expect(screen.getByRole('status', { name: /卷帘已开启/ })).toBeInTheDocument();
@@ -186,7 +206,9 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: '两期卷帘' }));
     fireEvent.click(await screen.findByRole('switch', { name: '启用两期影像卷帘' }));
 
-    await waitFor(() => expect(screen.getByText('工作空间')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: '工作空间' })).toBeInTheDocument(),
+    );
     expect(useMapStore.getState().imagerySwipe.enabled).toBe(false);
     expect(useSettingsStore.getState().panels.layers).toBe(true);
   });
@@ -216,9 +238,6 @@ describe('App', () => {
     expect(await screen.findByRole('dialog', { name: '导入中心' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '管理数据源' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-
-    fireEvent.click(screen.getByLabelText('保存项目'));
-    expect(screen.getByRole('status', { name: /保存入口已标记/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('撤销'));
     expect(screen.getByRole('status', { name: /暂无可撤销操作/ })).toBeInTheDocument();
@@ -320,6 +339,55 @@ describe('App', () => {
     ];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
+      const workspaceSummary = {
+        id: 1,
+        name: '本地工作台',
+        description: '',
+        default_basemap: 'amap-vector',
+        revision: 1,
+        layer_count: backendLayers.length,
+        is_default: true,
+        updated_at: null,
+      };
+      if (url.endsWith('/api/v1/workspaces')) {
+        return new Response(JSON.stringify([workspaceSummary]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/api/v1/workspaces/1')) {
+        return new Response(
+          JSON.stringify({
+            ...workspaceSummary,
+            schema_version: 'womap.workspace/v1',
+            workspace_uuid: '11111111-1111-1111-1111-111111111111',
+            view: { center: [12614000, 2647000], zoom: 11 },
+            layers: backendLayers.map((layer, order) => ({
+              config: {
+                layer_id: layer.id,
+                dataset_id: null,
+                visible: true,
+                opacity: 1,
+                order,
+                selection: { mode: 'all', feature_ids: [], source_feature_ids: [] },
+              },
+              layer: {
+                ...layer,
+                provenance: {
+                  format: 'manual',
+                  source_id: null,
+                  dataset_id: null,
+                  container: null,
+                  relative_path: null,
+                  fingerprint: null,
+                },
+              },
+            })),
+            warnings: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       if (url.endsWith('/api/v1/layers')) {
         return new Response(JSON.stringify(backendLayers), {
           status: 200,
@@ -549,7 +617,9 @@ describe('App', () => {
     expect(screen.queryByLabelText('新增图层')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('返回工作台'));
-    await waitFor(() => expect(screen.getByText('工作空间')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: '工作空间' })).toBeInTheDocument(),
+    );
   });
 
   it('lets the fields setting control a real field overview panel', async () => {

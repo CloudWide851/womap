@@ -55,11 +55,12 @@ class DatabaseSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     driver: str = "postgresql+asyncpg"
-    host: str = "localhost"
+    host: str = "127.0.0.1"
     port: int = 5432
     name: str = "womap"
     username: str = "womap"
     password: str = ""
+    ssl: bool = False
     pool: DatabasePoolSettings = Field(default_factory=DatabasePoolSettings)
 
     def sqlalchemy_url(self) -> URL:
@@ -71,6 +72,11 @@ class DatabaseSettings(BaseModel):
             port=self.port or None,
             database=self.name or None,
         )
+
+    def connect_args(self) -> dict[str, Any]:
+        if self.driver == "postgresql+asyncpg":
+            return {"ssl": self.ssl}
+        return {}
 
     @property
     def kind(self) -> str:

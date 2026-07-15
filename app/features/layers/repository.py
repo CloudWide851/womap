@@ -1,7 +1,9 @@
+from pathlib import Path, PureWindowsPath
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.layers.schemas import LayerPerformanceState, LayerSummary
+from app.features.layers.schemas import LayerPerformanceState, LayerProvenance, LayerSummary
 from app.features.projects.repository import ProjectRepository
 from app.models.layer import Layer
 
@@ -74,6 +76,16 @@ class LayerRepository:
 
     @staticmethod
     def to_summary(layer: Layer, metadata: dict | None = None) -> LayerSummary:
+        raw_metadata = metadata or layer.performance or {}
+        source_format = layer.source_type or "unknown"
+        container = LayerRepository._safe_provenance_path(
+            raw_metadata.get("container") or layer.data_path,
+            basename_only=True,
+        )
+        relative_path = LayerRepository._safe_provenance_path(
+            raw_metadata.get("relative_path") or layer.data_path,
+            basename_only=False,
+        )
         return LayerSummary(
             id=layer.id,
             name=layer.name,
@@ -87,5 +99,25 @@ class LayerRepository:
             fields=list(layer.fields or []),
             style=dict(layer.style or {}),
             source_type=layer.source_type,
-            performance=LayerPerformanceState.model_validate(metadata or layer.performance or {}),
+            performance=LayerPerformanceState.model_validate(raw_metadata),
+            provenance=LayerProvenance(
+                source_id=raw_metadata.get("source_id"),
+                dataset_id=raw_metadata.get("dataset_id"),
+                format=source_format,
+                container=container,
+                relative_path=relative_path,
+                layer_name=raw_metadata.get("layer_name") or layer.name,
+                fingerprint=raw_metadata.get("fingerprint"),
+            ),
         )
+
+    @staticmethod
+    def _safe_provenance_path(value: object, *, basename_only: bool) -> str | None:
+        if value in (None, ""):
+            return None
+        text = str(value).replace("\\", "/")
+        windows_path = PureWindowsPath(str(value))
+        if basename_only or Path(text).is_absolute() or windows_path.is_absolute():
+            return windows_path.name or Path(text).name
+        parts = [part for part in text.split("/") if part not in {"", ".", ".."}]
+        return "/".join(parts) or None

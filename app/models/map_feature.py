@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from geoalchemy2 import Geometry
 from sqlalchemy import JSON, Float, ForeignKey, Index, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -25,7 +26,10 @@ class MapFeature(TimestampMixin, Base):
     layer_id: Mapped[int] = mapped_column(ForeignKey("layers.id"), index=True)
     source_feature_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
     geom: Mapped[object] = mapped_column(Geometry(geometry_type="GEOMETRY", srid=3857), nullable=False)
-    properties: Mapped[dict] = mapped_column(JSON, default=dict)
+    properties: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        default=dict,
+    )
     bbox: Mapped[dict] = mapped_column(JSON, default=dict)
     area: Mapped[float | None] = mapped_column(Float, nullable=True)
     perimeter: Mapped[float | None] = mapped_column(Float, nullable=True)

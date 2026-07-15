@@ -1,10 +1,11 @@
-import { Empty, Tag, Tooltip } from 'antd';
+import { Button, Empty, Tag, Tooltip } from 'antd';
 import { BoxSelect, Crosshair, Database, PanelRightOpen, Ruler, ScanSearch } from 'lucide-react';
 import { memo } from 'react';
 import type { ReactNode } from 'react';
 
 import { IconTooltipButton } from '../../components/IconTooltipButton';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
 
 interface SummaryMetricProps {
   icon: ReactNode;
@@ -32,6 +33,17 @@ export function PropertiesPanel() {
   const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
   const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
   const selectedFeature = featurePreviews.find((feature) => feature.id === selectedFeatureId);
+  const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
+  const analysisTarget = useSpatialAnalysisStore((state) => state.target);
+  const setAnalysisDrawerOpen = useSpatialAnalysisStore((state) => state.setDrawerOpen);
+  const analysisTargetLabel = analysisTarget
+    ? String(
+        analysisTarget.properties.name ??
+          analysisTarget.properties['名称'] ??
+          analysisTarget.properties['编号'] ??
+          `图斑 ${analysisTarget.id}`,
+      )
+    : null;
 
   return (
     <section className="panel-section properties-panel-section">
@@ -77,6 +89,22 @@ export function PropertiesPanel() {
                 icon={<Crosshair size={15} />}
                 onClick={() => openFeatureInspector(selectedFeature.layerId, selectedFeature.id)}
               />
+            </div>
+          )}
+          {workspaceMode === 'analysis' && analysisTarget && (
+            <div className="context-analysis-target">
+              <div>
+                <strong>{analysisTargetLabel}</strong>
+                <span>真实图斑 · ID {analysisTarget.id}</span>
+              </div>
+              <Button
+                type="primary"
+                size="small"
+                icon={<ScanSearch size={14} />}
+                onClick={() => setAnalysisDrawerOpen(true)}
+              >
+                空间分析
+              </Button>
             </div>
           )}
           <div className="context-metric-grid">

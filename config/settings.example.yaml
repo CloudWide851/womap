@@ -23,11 +23,12 @@ imports:
 
 database:
   driver: postgresql+asyncpg
-  host: localhost
+  host: 127.0.0.1
   port: 5432
   name: womap
   username: womap
   password: "replace-with-local-password"
+  ssl: false
   pool:
     min_size: 2
     max_size: 10

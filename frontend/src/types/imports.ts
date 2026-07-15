@@ -56,7 +56,8 @@ export interface ImportCatalog {
   warnings: string[];
 }
 
-export interface JobProgressDetail {
+export interface ImportJobProgressDetail {
+  kind?: 'import';
   stage: string;
   source_id: string | null;
   dataset_id: string | null;
@@ -72,6 +73,36 @@ export interface JobProgressDetail {
   warnings: string[];
   error: string | null;
 }
+
+export interface WorkspacePackageJobProgressDetail {
+  kind: 'workspace-package';
+  stage: string;
+  operation: 'export' | 'import';
+  workspace_id: number | null;
+  current_layer: string | null;
+  processed_features: number;
+  total_features: number;
+  warnings: string[];
+  artifact_name: string | null;
+  error: string | null;
+}
+
+export interface SpatialAnalysisJobProgressDetail {
+  kind: 'spatial-analysis';
+  stage: string;
+  workspace_id: number | null;
+  target_feature_id: number | null;
+  processed_layers: number;
+  total_layers: number;
+  matched_features: number;
+  warnings: string[];
+  error: string | null;
+}
+
+export type JobProgressDetail =
+  | ImportJobProgressDetail
+  | WorkspacePackageJobProgressDetail
+  | SpatialAnalysisJobProgressDetail;
 
 export interface ImportJob {
   id: string;
@@ -102,5 +133,14 @@ export interface BackendLayerSummary {
     indexed: boolean;
     recommended_mode: string;
     warning?: string;
+  };
+  provenance: {
+    source_id: string | null;
+    dataset_id: string | null;
+    format: string;
+    container: string | null;
+    relative_path: string | null;
+    layer_name: string | null;
+    fingerprint: string | null;
   };
 }

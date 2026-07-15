@@ -97,6 +97,11 @@ const workspaceModeNotices: Record<WorkspaceMode, Omit<WorkspaceNotice, 'id'>> =
     title: '已进入属性查看模式',
     detail: '通过图层或图斑入口打开属性检查器，右侧仍保持轻量摘要。',
   },
+  analysis: {
+    tone: 'info',
+    title: '已进入空间分析模式',
+    detail: '请选择当前工作空间中的真实图斑作为分析目标。',
+  },
 };
 
 let noticeSequence = 0;

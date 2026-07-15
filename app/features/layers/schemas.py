@@ -24,6 +24,16 @@ class LayerPerformanceState(BaseModel):
     warning: str | None = None
 
 
+class LayerProvenance(BaseModel):
+    source_id: str | None = None
+    dataset_id: str | None = None
+    format: str = "manual"
+    container: str | None = None
+    relative_path: str | None = None
+    layer_name: str | None = None
+    fingerprint: str | None = None
+
+
 class LayerSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -40,3 +50,4 @@ class LayerSummary(BaseModel):
     fields: list[dict] = Field(default_factory=list)
     style: dict = Field(default_factory=dict)
     performance: LayerPerformanceState = Field(default_factory=LayerPerformanceState)
+    provenance: LayerProvenance = Field(default_factory=LayerProvenance)

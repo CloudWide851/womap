@@ -4,7 +4,9 @@ import pytest
 
 from app.shared.config import EXAMPLE_CONFIG_PATH
 from app.shared.config import LOCAL_CONFIG_PATH
+from app.shared.config import DatabaseSettings
 from app.shared.config import load_settings
+from app.shared.database import create_database_engine
 
 
 def test_yaml_settings_loads_split_connection_fields() -> None:
@@ -15,7 +17,9 @@ def test_yaml_settings_loads_split_connection_fields() -> None:
     assert settings.server.port == 8000
     assert settings.frontend.dev_server.host == "127.0.0.1"
     assert settings.frontend.dev_server.port == 5173
-    assert settings.database.host == "localhost"
+    assert settings.database.host == "127.0.0.1"
+    assert settings.database.ssl is False
+    assert settings.database.connect_args() == {"ssl": False}
     assert settings.redis.port == 6379
     assert settings.auth.password_policy.min_length >= 15
     assert settings.auth.session.idle_timeout_minutes > 0
@@ -51,6 +55,33 @@ maps:
         "postgresql+asyncpg://womap:***@localhost:5432/womap"
     )
     assert settings.database.sqlalchemy_url().password == "p@ss:word/with#chars"
+
+
+def test_database_connect_args_only_apply_asyncpg_ssl(tmp_path: Path) -> None:
+    config_path = tmp_path / "settings.yaml"
+    config_path.write_text(
+        """
+database:
+  driver: postgresql+asyncpg
+  ssl: true
+""",
+        encoding="utf-8",
+    )
+
+    settings = load_settings(config_path)
+
+    assert settings.database.connect_args() == {"ssl": True}
+    settings.database.driver = "sqlite+aiosqlite"
+    assert settings.database.connect_args() == {}
+
+
+def test_database_engine_keeps_real_password_while_url_string_is_redacted() -> None:
+    database = DatabaseSettings(password="database-secret")
+
+    engine = create_database_engine(database)
+
+    assert engine.url.password == "database-secret"
+    assert "database-secret" not in str(engine.url)
 
 
 def test_yaml_settings_loads_custom_runtime_ports(tmp_path: Path) -> None:

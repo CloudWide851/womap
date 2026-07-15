@@ -31,7 +31,13 @@ import {
 } from '../../services/api';
 import { useJobsStore } from '../../stores/useJobsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
-import type { CatalogDataset, ImportCatalog, ImportSettings } from '../../types/imports';
+import type {
+  CatalogDataset,
+  ImportCatalog,
+  ImportJob,
+  ImportJobProgressDetail,
+  ImportSettings,
+} from '../../types/imports';
 
 interface ImportCenterProps {
   open: boolean;
@@ -44,6 +50,12 @@ function formatBytes(value: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const index = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
   return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function isImportJob(
+  job: ImportJob,
+): job is ImportJob & { detail: ImportJobProgressDetail } {
+  return job.job_type === 'import-sync' || job.job_type === 'import-data';
 }
 
 const stateLabels = {
@@ -67,7 +79,7 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
   const showNotice = useWorkspaceStore((state) => state.showNotice);
   const completedJobRef = useRef<string | null>(null);
   const activeJob = useMemo(
-    () => jobs.find((job) => job.detail.source_id === sourceId),
+    () => jobs.filter(isImportJob).find((job) => job.detail.source_id === sourceId),
     [jobs, sourceId],
   );
 

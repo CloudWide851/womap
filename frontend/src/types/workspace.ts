@@ -6,7 +6,7 @@ export type SessionMode = 'short' | 'long';
 export type WorkspaceFieldType = 'string' | 'number' | 'boolean' | 'date';
 export type WorkspaceNoticeTone = 'info' | 'success' | 'warning';
 export type WorkspaceCommand = 'import-data' | 'save-project' | 'export-results' | 'undo' | 'redo' | 'add-layer';
-export type WorkspaceMode = 'browse' | 'edit' | 'inspect';
+export type WorkspaceMode = 'browse' | 'edit' | 'inspect' | 'analysis';
 export type CoordinateCrs = 'EPSG:4326' | 'EPSG:3857' | 'GCJ-02' | 'BD-09';
 
 export interface AttributeInspectorTarget {
@@ -143,6 +143,7 @@ export interface FeatureQueryMeta {
 
 export interface MapRuntimeState {
   coordinate: [number, number];
+  viewCenter: [number, number];
   zoom: number;
   scale: string;
   crs: string;

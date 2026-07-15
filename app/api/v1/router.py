@@ -9,6 +9,8 @@ from app.features.layers.router import router as layers_router
 from app.features.map_features.router import router as map_features_router
 from app.features.projects.router import router as projects_router
 from app.features.settings.router import router as settings_router
+from app.features.spatial_analyses.router import router as spatial_analyses_router
+from app.features.workspaces.router import router as workspaces_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
@@ -20,3 +22,9 @@ api_router.include_router(basemaps_router, prefix="/basemaps", tags=["basemaps"]
 api_router.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(imports_router, prefix="/imports", tags=["imports"])
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
+api_router.include_router(workspaces_router, prefix="/workspaces", tags=["workspaces"])
+api_router.include_router(
+    spatial_analyses_router,
+    prefix="/spatial-analyses",
+    tags=["spatial-analyses"],
+)

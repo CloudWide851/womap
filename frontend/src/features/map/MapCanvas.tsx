@@ -1,5 +1,5 @@
-import { Tooltip } from 'antd';
-import { DatabaseZap, Layers3, MapPinned, MousePointerSquareDashed } from 'lucide-react';
+import { Button, Tooltip } from 'antd';
+import { DatabaseZap, Layers3, MapPinned, MousePointerSquareDashed, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Feature from 'ol/Feature';
 import GeoJSON from 'ol/format/GeoJSON';
@@ -11,6 +11,7 @@ import Polygon from 'ol/geom/Polygon';
 import Geometry from 'ol/geom/Geometry';
 import { fromExtent as polygonFromExtent } from 'ol/geom/Polygon';
 import Draw from 'ol/interaction/Draw';
+import SelectInteraction from 'ol/interaction/Select';
 import type { DrawEvent } from 'ol/interaction/Draw';
 import Map from 'ol/Map';
 import View from 'ol/View';
@@ -31,6 +32,8 @@ import { createLayerFeature, createManualLayer, getLayerFeatures } from '../../s
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useWorkspaceContextStore } from '../../stores/useWorkspaceContextStore';
+import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
 import type { BasemapProvider, FeatureAttributePreview, WorkspaceLayer } from '../../types/workspace';
 import { normalizeBackendLayer } from '../layers/backendLayer';
 import { MapToolbox } from './MapToolbox';
@@ -47,6 +50,26 @@ interface BackendLayerFocusDetail {
 }
 
 const featureStyleCache = new globalThis.Map<string, Style>();
+
+function getAnalysisOverlayStyle(feature: FeatureLike) {
+  const kind = String(feature.get('analysisKind'));
+  if (kind === 'target') {
+    return new Style({
+      fill: new Fill({ color: 'rgba(181, 124, 42, 0.18)' }),
+      stroke: new Stroke({ color: '#a66a18', width: 3 }),
+    });
+  }
+  if (kind === 'hit') {
+    return new Style({
+      fill: new Fill({ color: 'rgba(87, 72, 156, 0.16)' }),
+      stroke: new Stroke({ color: '#57489c', width: 2 }),
+    });
+  }
+  return new Style({
+    fill: new Fill({ color: 'rgba(70, 86, 168, 0.08)' }),
+    stroke: new Stroke({ color: '#4656a8', width: 2, lineDash: [7, 5] }),
+  });
+}
 
 function buildProviderUrls(provider: BasemapProvider): string[] | undefined {
   if (!provider.urlTemplate) {
@@ -179,12 +202,15 @@ export function MapCanvas() {
   const baseLayerRef = useRef<TileLayer<BasemapSource> | null>(null);
   const swipeLayerRef = useRef<TileLayer<BasemapSource> | null>(null);
   const featureLayerRef = useRef<VectorLayer<VectorSource<Feature<MapFeatureGeometry>>> | null>(null);
+  const analysisOverlayLayerRef = useRef<VectorLayer<VectorSource<Feature<Geometry>>> | null>(null);
   const backendLayersRef = useRef(
     new globalThis.Map<string, VectorLayer<VectorSource<BackendFeature>>>(),
   );
   const backendAbortRef = useRef<AbortController | null>(null);
   const truncatedLayerIdsRef = useRef(new Set<string>());
   const drawInteractionRef = useRef<Draw | null>(null);
+  const workspacePickInteractionRef = useRef<SelectInteraction | null>(null);
+  const analysisSelectInteractionRef = useRef<SelectInteraction | null>(null);
   const drawingStartedRef = useRef(false);
   const drawingSavingRef = useRef(false);
   const creatingLayerRef = useRef(false);
@@ -208,6 +234,13 @@ export function MapCanvas() {
   const featureFocusRequest = useWorkspaceStore((state) => state.featureFocusRequest);
   const featurePreviews = useWorkspaceStore((state) => state.featurePreviews);
   const layers = useWorkspaceStore((state) => state.layers);
+  const currentWorkspace = useWorkspaceContextStore((state) => state.current);
+  const analysisTarget = useSpatialAnalysisStore((state) => state.target);
+  const analysisResult = useSpatialAnalysisStore((state) => state.result);
+  const analysisHits = useSpatialAnalysisStore((state) => state.hits);
+  const selectAnalysisFeature = useSpatialAnalysisStore((state) => state.selectFeature);
+  const exitSpatialAnalysis = useSpatialAnalysisStore((state) => state.exit);
+  const analysisDrawerOpen = useSpatialAnalysisStore((state) => state.drawerOpen);
   const openFeatureInspector = useWorkspaceStore((state) => state.openFeatureInspector);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
@@ -279,12 +312,18 @@ export function MapCanvas() {
               selectedFeatureIdRef.current,
             ),
         });
+        const analysisOverlayLayer = new VectorLayer({
+          source: new VectorSource<Feature<Geometry>>({ useSpatialIndex: true }),
+          style: getAnalysisOverlayStyle,
+          zIndex: 90,
+        });
         baseLayerRef.current = baseLayer;
         swipeLayerRef.current = swipeLayer;
         featureLayerRef.current = featureLayer;
+        analysisOverlayLayerRef.current = analysisOverlayLayer;
         map = new Map({
           target: mapRef.current,
-          layers: [baseLayer, swipeLayer, featureLayer],
+          layers: [baseLayer, swipeLayer, featureLayer, analysisOverlayLayer],
           view: new View({
             center: [12608500, 2644100],
             zoom: 10,
@@ -307,6 +346,7 @@ export function MapCanvas() {
               Number(longitude.toFixed(6)),
               Number(latitude.toFixed(6)),
             ],
+            viewCenter: [Number(center[0].toFixed(3)), Number(center[1].toFixed(3))],
             zoom: Number(zoom.toFixed(2)),
             scale: estimateScale(zoom),
           });
@@ -331,10 +371,19 @@ export function MapCanvas() {
       baseLayerRef.current = null;
       swipeLayerRef.current = null;
       featureLayerRef.current = null;
+      analysisOverlayLayerRef.current = null;
       backendAbortRef.current?.abort();
       backendLayersRef.current.clear();
     };
   }, [setViewState]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mapReady === 0 || !currentWorkspace) return;
+    map.getView().setCenter(currentWorkspace.view.center);
+    map.getView().setZoom(currentWorkspace.view.zoom);
+    map.render();
+  }, [currentWorkspace?.id, currentWorkspace?.revision, mapReady]);
 
   useEffect(() => {
     if (!mapRef.current || typeof ResizeObserver === 'undefined') {
@@ -483,6 +532,122 @@ export function MapCanvas() {
       vectorLayer.changed();
     }
   }, [layers, mapReady]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mapReady === 0 || workspaceMode !== 'analysis') return;
+    const selectableLayers = layers
+      .filter((layer) => layer.source === 'backend' && layer.visible)
+      .map((layer) => backendLayersRef.current.get(layer.id))
+      .filter((layer): layer is VectorLayer<VectorSource<BackendFeature>> => Boolean(layer));
+    const interaction = new SelectInteraction({ layers: selectableLayers, hitTolerance: 7 });
+    interaction.on('select', (event) => {
+      const feature = event.selected[0];
+      const parts = String(feature?.getId() ?? '').split(':');
+      const featureId = Number(parts.at(-1));
+      const layerId = Number(parts.at(-2));
+      if (!Number.isInteger(featureId) || !Number.isInteger(layerId)) return;
+      void selectAnalysisFeature(layerId, featureId)
+        .then(() => showNotice({
+          tone: 'success',
+          title: '已选择分析目标',
+          detail: `图层 ${layerId} · 图斑 ${featureId}`,
+        }))
+        .catch(() => undefined);
+    });
+    analysisSelectInteractionRef.current = interaction;
+    map.addInteraction(interaction);
+    return () => {
+      interaction.getFeatures().clear();
+      map.removeInteraction(interaction);
+      if (analysisSelectInteractionRef.current === interaction) {
+        analysisSelectInteractionRef.current = null;
+      }
+    };
+  }, [layers, mapReady, selectAnalysisFeature, showNotice, workspaceMode]);
+
+  useEffect(() => {
+    const source = analysisOverlayLayerRef.current?.getSource();
+    if (!source) return;
+    source.clear(true);
+    const addGeometry = (geometry: unknown, kind: 'target' | 'buffer' | 'hit', id: string) => {
+      if (!geometry) return;
+      const feature = new GeoJSON().readFeature(
+        { type: 'Feature', id, geometry, properties: { analysisKind: kind } },
+        { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
+      ) as Feature<Geometry>;
+      feature.set('analysisKind', kind);
+      source.addFeature(feature);
+    };
+    addGeometry(analysisTarget?.geometry ?? analysisResult?.target_geometry, 'target', 'analysis-target');
+    addGeometry(analysisResult?.buffer_geometry, 'buffer', 'analysis-buffer');
+    for (const hit of analysisHits) {
+      addGeometry(hit.geometry, 'hit', `analysis-hit-${hit.layer_id}-${hit.feature_id}`);
+    }
+    analysisOverlayLayerRef.current?.changed();
+  }, [
+    analysisHits,
+    analysisResult?.buffer_geometry,
+    analysisResult?.target_geometry,
+    analysisTarget?.geometry,
+    mapReady,
+  ]);
+
+  useEffect(() => {
+    if (workspaceMode !== 'analysis' || analysisDrawerOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') exitSpatialAnalysis();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [analysisDrawerOpen, exitSpatialAnalysis, workspaceMode]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mapReady === 0) return;
+    const clearPicker = () => {
+      const interaction = workspacePickInteractionRef.current;
+      if (interaction) map.removeInteraction(interaction);
+      workspacePickInteractionRef.current = null;
+    };
+    const handleStartPick = (event: Event) => {
+      const layerId = String((event as CustomEvent<{ layerId: number }>).detail?.layerId ?? '');
+      const vectorLayer = backendLayersRef.current.get(layerId);
+      clearPicker();
+      if (!vectorLayer) {
+        showNotice({ tone: 'warning', title: '图层不可拾取', detail: '请先显示并加载该工作空间图层。' });
+        return;
+      }
+      const interaction = new SelectInteraction({
+        layers: [vectorLayer],
+        hitTolerance: 6,
+      });
+      interaction.once('select', (selectEvent) => {
+        const feature = selectEvent.selected[0];
+        const featureId = Number(String(feature?.getId() ?? '').split(':').at(-1));
+        if (Number.isInteger(featureId)) {
+          window.dispatchEvent(new CustomEvent('womap:workspace-feature-picked', {
+            detail: { layerId: Number(layerId), featureId },
+          }));
+          showNotice({ tone: 'success', title: '已加入指定图斑', detail: `图斑 ${featureId}` });
+        }
+        clearPicker();
+      });
+      workspacePickInteractionRef.current = interaction;
+      map.addInteraction(interaction);
+      showNotice({ tone: 'info', title: '地图拾取已启用', detail: '点击目标图斑加入工作空间选择。' });
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') clearPicker();
+    };
+    window.addEventListener('womap:start-workspace-feature-pick', handleStartPick);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('womap:start-workspace-feature-pick', handleStartPick);
+      window.removeEventListener('keydown', handleEscape);
+      clearPicker();
+    };
+  }, [mapReady, showNotice]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -635,6 +800,7 @@ export function MapCanvas() {
               bbox,
               2000,
               controller.signal,
+              useWorkspaceContextStore.getState().current?.id,
             );
             if (controller.signal.aborted || disposed) return;
             if (response.meta.truncated && !truncatedLayerIdsRef.current.has(workspaceLayer.id)) {
@@ -655,13 +821,17 @@ export function MapCanvas() {
                 type: 'FeatureCollection',
                 features: (response.features as Array<{
                   id: number;
+                  source_feature_id?: string | null;
                   geometry: unknown;
                   properties: Record<string, unknown>;
                 }>).map((feature) => ({
                   type: 'Feature',
                   id: feature.id,
                   geometry: feature.geometry,
-                  properties: feature.properties,
+                  properties: {
+                    ...feature.properties,
+                    womapSourceFeatureId: feature.source_feature_id ?? null,
+                  },
                 })),
               },
               { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
@@ -795,6 +965,15 @@ export function MapCanvas() {
     >
       <div className="map-frame" ref={mapRef} />
       <MapToolbox />
+      {workspaceMode === 'analysis' && (
+        <Button
+          className="exit-analysis-button"
+          icon={<X size={15} />}
+          onClick={exitSpatialAnalysis}
+        >
+          退出空间分析
+        </Button>
+      )}
       <div className="map-floating-strip">
         <Tooltip title="当前底图">
           <span>

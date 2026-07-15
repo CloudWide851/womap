@@ -1,7 +1,12 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.jobs.schemas import JobProgressDetail, JobStatus
+from app.features.jobs.schemas import (
+    JobProgressDetail,
+    JobStatus,
+    SpatialAnalysisJobProgressDetail,
+    WorkspacePackageJobProgressDetail,
+)
 from app.models.job import Job
 
 
@@ -29,12 +34,22 @@ class JobRepository:
     def to_status(job: Job) -> JobStatus:
         result = dict(job.result or {})
         detail = result.get("detail") if isinstance(result.get("detail"), dict) else {}
+        detail = dict(detail)
+        if job.job_type.startswith("workspace-"):
+            detail.setdefault("kind", "workspace-package")
+            detail_model = WorkspacePackageJobProgressDetail.model_validate(detail)
+        elif job.job_type.startswith("spatial-analysis"):
+            detail.setdefault("kind", "spatial-analysis")
+            detail_model = SpatialAnalysisJobProgressDetail.model_validate(detail)
+        else:
+            detail.setdefault("kind", "import")
+            detail_model = JobProgressDetail.model_validate(detail)
         return JobStatus(
             id=job.id,
             job_type=job.job_type,
             status=job.status,
             progress=job.progress,
             message=job.message,
-            detail=JobProgressDetail.model_validate(detail),
+            detail=detail_model,
             result=result,
         )

@@ -7,6 +7,22 @@ import type {
   ImportSourceProfile,
   ImportSourceWrite,
 } from '../types/imports';
+import type {
+  MapFeatureSummaryPage,
+  WorkspaceCatalog,
+  WorkspaceDetail,
+  WorkspacePackagePreview,
+  WorkspaceSummary,
+  WorkspaceUpdate,
+  WorkspaceWrite,
+} from '../types/workspaces';
+import type {
+  AnalysisScope,
+  AnalysisUnit,
+  RealMapFeatureDetail,
+  SpatialAnalysisHitPage,
+  SpatialAnalysisResult,
+} from '../types/spatialAnalysis';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 type ExportFormat = 'shp' | 'gdb';
@@ -66,8 +82,10 @@ export async function getLayerFeatures(
   bbox: string,
   limit = 1000,
   signal?: AbortSignal,
+  workspaceId?: number | null,
 ) {
   const params = new URLSearchParams({ bbox, limit: String(limit) });
+  if (workspaceId) params.set('workspace_id', String(workspaceId));
   const response = await fetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features?${params}`, {
     signal,
   });
@@ -79,6 +97,196 @@ export async function getLayerFeatures(
     features: unknown[];
     meta: FeatureQueryMeta;
   }>;
+}
+
+export async function getLayerFeatureSummaries(
+  layerId: number,
+  workspaceId?: number | null,
+  cursor?: string | null,
+) {
+  const params = new URLSearchParams({ limit: '200' });
+  if (workspaceId) params.set('workspace_id', String(workspaceId));
+  if (cursor) params.set('cursor', cursor);
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/layers/${layerId}/feature-summaries?${params}`,
+  );
+  if (!response.ok) throw await apiError(response, '图斑列表加载失败');
+  return response.json() as Promise<MapFeatureSummaryPage>;
+}
+
+export async function getLayerFeatureDetail(
+  layerId: number,
+  featureId: number,
+  workspaceId?: number | null,
+) {
+  const params = new URLSearchParams();
+  if (workspaceId) params.set('workspace_id', String(workspaceId));
+  const query = params.size > 0 ? `?${params}` : '';
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/layers/${layerId}/features/${featureId}${query}`,
+  );
+  if (!response.ok) throw await apiError(response, '图斑详情加载失败');
+  return response.json() as Promise<RealMapFeatureDetail>;
+}
+
+export async function createSpatialAnalysis(payload: {
+  workspace_id: number;
+  target_layer_id: number;
+  target_feature_id: number;
+  distance: number;
+  unit: AnalysisUnit;
+  scope: AnalysisScope;
+}) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/spatial-analyses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, '空间分析提交失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function getSpatialAnalysis(jobId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}`,
+  );
+  if (!response.ok) throw await apiError(response, '空间分析结果加载失败');
+  return response.json() as Promise<SpatialAnalysisResult>;
+}
+
+export async function getSpatialAnalysisHits(jobId: string, cursor?: string | null) {
+  const params = new URLSearchParams({ limit: '100', include_geometry: 'true' });
+  if (cursor) params.set('cursor', cursor);
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}/hits?${params}`,
+  );
+  if (!response.ok) throw await apiError(response, '分析命中列表加载失败');
+  return response.json() as Promise<SpatialAnalysisHitPage>;
+}
+
+export async function cancelSpatialAnalysis(jobId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}/cancel`,
+    { method: 'POST' },
+  );
+  if (!response.ok) throw await apiError(response, '空间分析取消失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function exportSpatialAnalysis(jobId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}/exports`,
+    { method: 'POST' },
+  );
+  if (!response.ok) throw await apiError(response, '分析结果导出失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function downloadSpatialAnalysis(exportJobId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/spatial-analyses/exports/${encodeURIComponent(exportJobId)}/download`,
+  );
+  if (!response.ok) throw await apiError(response, '分析结果下载失败');
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(
+      response.headers.get('content-disposition'),
+      'spatial-analysis.zip',
+    ),
+  };
+}
+
+export async function getWorkspaces() {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces`);
+  if (!response.ok) throw await apiError(response, '工作空间列表加载失败');
+  return response.json() as Promise<WorkspaceSummary[]>;
+}
+
+export async function getWorkspace(workspaceId: number) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`);
+  if (!response.ok) throw await apiError(response, '工作空间加载失败');
+  return response.json() as Promise<WorkspaceDetail>;
+}
+
+export async function getWorkspaceCatalog() {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/catalog`);
+  if (!response.ok) throw await apiError(response, '工作空间数据目录加载失败');
+  return response.json() as Promise<WorkspaceCatalog>;
+}
+
+export async function createWorkspace(payload: WorkspaceWrite) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, '工作空间创建失败');
+  return response.json() as Promise<WorkspaceDetail>;
+}
+
+export async function updateWorkspace(workspaceId: number, payload: WorkspaceUpdate) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, '工作空间保存失败');
+  return response.json() as Promise<WorkspaceDetail>;
+}
+
+export async function deleteWorkspace(workspaceId: number) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw await apiError(response, '工作空间删除失败');
+}
+
+export async function exportWorkspace(workspaceId: number) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}/exports`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw await apiError(response, '工作空间包导出失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function previewWorkspacePackage(file: File) {
+  const formData = new FormData();
+  formData.append('package', file);
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/packages/preview`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) throw await apiError(response, '工作空间包预览失败');
+  return response.json() as Promise<WorkspacePackagePreview>;
+}
+
+export async function importWorkspacePackage(
+  uploadToken: string,
+  strategy: 'copy' | 'replace',
+  targetWorkspaceId?: number | null,
+) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/packages/imports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      upload_token: uploadToken,
+      strategy,
+      target_workspace_id: targetWorkspaceId ?? null,
+    }),
+  });
+  if (!response.ok) throw await apiError(response, '工作空间包导入失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function downloadWorkspacePackage(jobId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/workspaces/packages/exports/${encodeURIComponent(jobId)}/download`,
+  );
+  if (!response.ok) throw await apiError(response, '工作空间包下载失败');
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('content-disposition'), 'workspace.womap.zip'),
+  };
 }
 
 export async function getLayers() {
@@ -125,6 +333,12 @@ export async function getJobs() {
   const response = await fetch(`${apiBaseUrl}/api/v1/jobs`);
   if (!response.ok) throw await apiError(response, '任务列表加载失败');
   return response.json() as Promise<ImportJob[]>;
+}
+
+export async function getJob(jobId: string) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/jobs/${encodeURIComponent(jobId)}`);
+  if (!response.ok) throw await apiError(response, '任务状态加载失败');
+  return response.json() as Promise<ImportJob>;
 }
 
 export async function getImportSettings() {

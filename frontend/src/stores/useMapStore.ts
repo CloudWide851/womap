@@ -5,7 +5,9 @@ import type { CoordinateCrs, MapRuntimeState } from '../types/workspace';
 
 interface MapState extends MapRuntimeState {
   setSelectedBasemap: (basemapId: string) => void;
-  setViewState: (state: Partial<Pick<MapRuntimeState, 'coordinate' | 'zoom' | 'scale'>>) => void;
+  setViewState: (
+    state: Partial<Pick<MapRuntimeState, 'coordinate' | 'viewCenter' | 'zoom' | 'scale'>>,
+  ) => void;
   setCoordinateInput: (axis: 'x' | 'y', value: string) => void;
   setCoordinateCrs: (field: 'source' | 'target', crs: CoordinateCrs) => void;
   convertCoordinate: () => void;
@@ -18,6 +20,7 @@ interface MapState extends MapRuntimeState {
 function createInitialState(): MapRuntimeState {
   return {
     coordinate: [113.2644, 23.1291],
+    viewCenter: [12608500, 2644100],
     zoom: 10,
     scale: '1:5000',
     crs: 'EPSG:3857',

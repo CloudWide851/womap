@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.shared.config import get_settings
 from app.features.imports.repository import ImportRepository
+from app.features.spatial_analyses.repository import SpatialAnalysisRepository
+from app.features.workspaces.package_repository import WorkspacePackageRepository
 from app.shared.database import AsyncSessionLocal
 
 
@@ -14,6 +16,8 @@ async def lifespan(_: FastAPI):
     try:
         async with AsyncSessionLocal() as session:
             await ImportRepository(session).mark_stale_jobs_interrupted()
+            await WorkspacePackageRepository(session).mark_stale_jobs_interrupted()
+            await SpatialAnalysisRepository(session).mark_stale_jobs_interrupted()
     except Exception:
         # The workbench can still start and expose diagnostics when Postgres is unavailable.
         pass

@@ -1,6 +1,6 @@
 import { Button, Dropdown, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { Blend, ChevronDown, Gauge, LocateFixed, Wrench, X } from 'lucide-react';
+import { Blend, ChevronDown, Gauge, LocateFixed, ScanSearch, Wrench, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CoordinateToolPanel, SwipeToolPanel } from './MapToolsPanel';
@@ -8,6 +8,7 @@ import { PerformancePanel } from '../performance/PerformancePanel';
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
 
 type ToolView = 'coordinate' | 'swipe' | 'performance';
 
@@ -24,6 +25,7 @@ export function MapToolbox() {
   const setSwipeEnabled = useMapStore((state) => state.setSwipeEnabled);
   const setWorkspaceMode = useWorkspaceStore((state) => state.setWorkspaceMode);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
+  const enterSpatialAnalysis = useSpatialAnalysisStore((state) => state.enter);
 
   const closeToolbox = useCallback(() => {
     setOpen(false);
@@ -67,6 +69,7 @@ export function MapToolbox() {
     () => [
       { key: 'coordinate', label: '地图工具', icon: <LocateFixed size={14} /> },
       { key: 'swipe', label: '两期卷帘', icon: <Blend size={14} /> },
+      { key: 'analysis', label: '空间分析', icon: <ScanSearch size={14} /> },
       {
         key: 'performance',
         label: '性能',
@@ -78,6 +81,11 @@ export function MapToolbox() {
   );
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'analysis') {
+      enterSpatialAnalysis();
+      closeToolbox();
+      return;
+    }
     const nextView = key as ToolView;
     setActiveView(nextView);
     if (nextView === 'swipe') handleSwipeEnabledChange(true);

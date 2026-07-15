@@ -6,14 +6,23 @@ from app.features.map_features.schemas import (
     FeatureCollectionResponse,
     MapFeatureCreate,
     MapFeatureCreateResponse,
+    MapFeatureDetail,
+    MapFeatureSummaryPage,
 )
+from app.features.workspaces.schemas import WorkspaceSelectionFilter
+from app.features.workspaces.service import WorkspaceService
 from app.shared.config import get_settings
 from app.shared.pagination import BBoxQuery, FeatureQueryMeta
 
 
 class MapFeatureService:
-    def __init__(self, repository: MapFeatureRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: MapFeatureRepository | None = None,
+        workspace_service: WorkspaceService | None = None,
+    ) -> None:
         self.repository = repository or MapFeatureRepository()
+        self.workspace_service = workspace_service
         self.settings = get_settings()
 
     async def list_viewport_features(
@@ -23,6 +32,7 @@ class MapFeatureService:
         limit: int | None,
         cursor: str | None,
         simplify: float | None,
+        workspace_id: int | None = None,
     ) -> FeatureCollectionResponse:
         effective_limit = self.settings.performance.clamp_feature_limit(limit)
         effective_simplify = simplify
@@ -33,12 +43,14 @@ class MapFeatureService:
         if truncated:
             warning = "请求数量超过系统上限，已按最大安全窗口返回。"
 
+        workspace_filter = await self._workspace_filter(workspace_id, layer_id)
         features, next_cursor, has_more = await self.repository.list_viewport_features(
             layer_id=layer_id,
             bbox=bbox,
             limit=effective_limit,
             cursor=cursor,
             simplify=effective_simplify,
+            workspace_filter=workspace_filter,
         )
         if has_more:
             truncated = True
@@ -57,6 +69,43 @@ class MapFeatureService:
                 strategy="postgis-bbox-gist",
             ),
         )
+
+    async def list_feature_summaries(
+        self,
+        layer_id: int,
+        limit: int,
+        cursor: str | None,
+        workspace_id: int | None,
+    ) -> MapFeatureSummaryPage:
+        workspace_filter = await self._workspace_filter(workspace_id, layer_id)
+        items, next_cursor, has_more = await self.repository.list_feature_summaries(
+            layer_id=layer_id,
+            limit=limit,
+            cursor=cursor,
+            workspace_filter=workspace_filter,
+        )
+        return MapFeatureSummaryPage(
+            items=items,
+            next_cursor=next_cursor,
+            has_more=has_more,
+            returned=len(items),
+        )
+
+    async def get_feature_detail(
+        self,
+        layer_id: int,
+        feature_id: int,
+        workspace_id: int | None,
+    ) -> MapFeatureDetail:
+        workspace_filter = await self._workspace_filter(workspace_id, layer_id)
+        detail = await self.repository.get_feature_detail(
+            layer_id=layer_id,
+            feature_id=feature_id,
+            workspace_filter=workspace_filter,
+        )
+        if detail is None:
+            raise KeyError(feature_id)
+        return detail
 
     async def create_polygon_feature(
         self,
@@ -100,3 +149,14 @@ class MapFeatureService:
         if geometry.is_empty or geometry.area <= 0:
             raise ValueError("Polygon 不能为空或面积为零。")
         return geometry
+
+    async def _workspace_filter(
+        self,
+        workspace_id: int | None,
+        layer_id: int,
+    ) -> WorkspaceSelectionFilter | None:
+        if workspace_id is None:
+            return None
+        if self.workspace_service is None:
+            raise RuntimeError("工作空间过滤服务不可用。")
+        return await self.workspace_service.selection_filter(workspace_id, layer_id)

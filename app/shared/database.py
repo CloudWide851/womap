@@ -1,11 +1,19 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from app.shared.config import get_settings
+from app.shared.config import DatabaseSettings, get_settings
+
+
+def create_database_engine(database: DatabaseSettings) -> AsyncEngine:
+    return create_async_engine(
+        database.sqlalchemy_url(),
+        pool_pre_ping=True,
+        connect_args=database.connect_args(),
+    )
 
 settings = get_settings()
-engine = create_async_engine(str(settings.database.sqlalchemy_url()), pool_pre_ping=True)
+engine = create_database_engine(settings.database)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
