@@ -14,6 +14,7 @@ from app.features.workspaces.package_io import (
     WorkspacePackageError,
     build_workspace_package,
     extract_geopackage,
+    extract_raster_assets,
     read_package_layer,
     validate_workspace_package,
 )
@@ -216,6 +217,81 @@ def test_workspace_package_geopackage_subset_round_trip(tmp_path: Path) -> None:
         serialized = b"".join(package.read(name) for name in package.namelist())
     assert b"password" not in serialized.lower()
     assert b"api_key" not in serialized.lower()
+
+
+def test_workspace_package_optionally_embeds_raster_asset(tmp_path: Path) -> None:
+    raster_path = tmp_path / "managed.tif"
+    raster_path.write_bytes(b"II*\x00COG-test-asset")
+    raster_layer = make_layer()
+    raster_layer.name = "遥感影像"
+    raster_layer.geometry_type = "Raster"
+    raster_layer.feature_count = 0
+    raster_layer.locked = True
+    raster_layer.data_path = str(raster_path)
+    raster_layer.style = {
+        "raster": {
+            "schema_version": "womap.raster-style/v1",
+            "mode": "grayscale",
+            "bands": [1],
+            "stretch": "percentile",
+            "gamma": 1.0,
+            "nodata_transparent": True,
+        }
+    }
+    raster_layer.performance = {
+        **raster_layer.performance,
+        "raster": {
+            "width": 16,
+            "height": 16,
+            "band_count": 1,
+            "driver": "GTiff",
+            "dtypes": ["uint16"],
+            "nodata": [None],
+            "resolution": [10.0, 10.0],
+            "byte_size": raster_path.stat().st_size,
+            "bands": [
+                {
+                    "index": 1,
+                    "name": "Band 1",
+                    "dtype": "uint16",
+                    "nodata": None,
+                    "color_interpretation": "gray",
+                }
+            ],
+        },
+    }
+    config = WorkspaceLayerConfig(
+        layer_id=1,
+        dataset_id="dataset-1",
+        raster_style=raster_layer.style["raster"],
+    )
+    workspace = make_workspace_detail().model_copy(
+        update={
+            "layers": [
+                WorkspaceLayerState(
+                    config=config,
+                    layer=LayerRepository.to_summary(raster_layer),
+                )
+            ]
+        }
+    )
+
+    archive = build_workspace_package(
+        output_dir=tmp_path / "raster-artifacts",
+        workspace=workspace,
+        basemap=WorkspaceBasemapReference(id="osm", name="OSM", type="xyz"),
+        layer_features={1: []},
+        raster_assets={1: raster_path},
+    )
+
+    validated = validate_workspace_package(archive.path)
+    layer_manifest = validated.manifest.layers[0]
+    assert layer_manifest.kind == "raster"
+    assert layer_manifest.asset_member == "raster-1.tif"
+    extracted = extract_raster_assets(validated, tmp_path / "raster-extract")
+    assert extracted[layer_manifest.package_layer].read_bytes() == raster_path.read_bytes()
+    with zipfile.ZipFile(archive.path) as package:
+        assert package.getinfo("raster-1.tif").compress_type == zipfile.ZIP_STORED
 
 
 def _write_minimal_package(path: Path, manifest: WorkspacePackageManifest) -> None:

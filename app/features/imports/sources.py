@@ -10,7 +10,29 @@ from threading import Lock
 from app.features.settings.credentials import CredentialStore, CredentialStoreProtocol
 from app.features.settings.schemas import ImportSourceResponse
 
-RELEVANT_SHP_SUFFIXES = {".shp", ".shx", ".dbf", ".prj", ".cpg", ".sbn", ".sbx", ".xml"}
+RELEVANT_SOURCE_SUFFIXES = {
+    ".shp",
+    ".shx",
+    ".dbf",
+    ".prj",
+    ".cpg",
+    ".sbn",
+    ".sbx",
+    ".xml",
+    ".tif",
+    ".tiff",
+    ".img",
+    ".jp2",
+    ".j2k",
+    ".vrt",
+    ".hdf",
+    ".h4",
+    ".h5",
+    ".he5",
+    ".nc",
+    ".nc4",
+    ".cdf",
+}
 
 
 @dataclass
@@ -92,7 +114,7 @@ class SourceMaterializer:
             inside_gdb = any(part.lower().endswith(".gdb") for part in PureWindowsPath(current).parts)
             for name in names:
                 suffix = Path(name).suffix.lower()
-                if not inside_gdb and suffix not in RELEVANT_SHP_SUFFIXES:
+                if not inside_gdb and suffix not in RELEVANT_SOURCE_SUFFIXES:
                     continue
                 remote_path = ntpath.join(current, name)
                 relative = ntpath.relpath(remote_path, remote_root)

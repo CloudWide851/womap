@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator
 
 from app.features.layers.schemas import LayerSummary
+from app.features.rasters.schemas import RasterStyle
 
 
 WORKSPACE_SCHEMA_VERSION = "womap.workspace/v1"
@@ -26,6 +27,7 @@ class WorkspaceLayerConfig(BaseModel):
     opacity: float = Field(default=1.0, ge=0, le=1)
     order: int = Field(default=0, ge=0)
     selection: WorkspaceFeatureSelection = Field(default_factory=WorkspaceFeatureSelection)
+    raster_style: RasterStyle | None = None
 
 
 class WorkspaceMapView(BaseModel):
@@ -133,6 +135,9 @@ class WorkspacePackageLayerManifest(BaseModel):
     container: str | None = None
     fingerprint: str | None = None
     config: WorkspaceLayerConfig
+    kind: Literal["vector", "raster"] = "vector"
+    raster: dict[str, Any] | None = None
+    asset_member: str | None = None
 
 
 class WorkspacePackageManifest(BaseModel):
@@ -159,6 +164,10 @@ class WorkspacePackagePreview(BaseModel):
     basemap_missing: bool = False
     conflicting_workspace_id: int | None = None
     warnings: list[str] = Field(default_factory=list)
+
+
+class WorkspacePackageExportRequest(BaseModel):
+    include_rasters: bool = False
 
 
 class WorkspacePackageImportRequest(BaseModel):

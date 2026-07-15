@@ -62,6 +62,17 @@ class ExportRepository:
 
         return [layer for layer in grouped.values() if layer.features]
 
+    async def raster_layer_ids(self, layer_ids: list[int]) -> list[int]:
+        if self.session is None or not layer_ids:
+            return []
+        values = await self.session.scalars(
+            select(Layer.id).where(
+                Layer.id.in_(layer_ids),
+                Layer.geometry_type == "Raster",
+            )
+        )
+        return [int(value) for value in values]
+
     def _parse_geometry(self, value: Any) -> dict[str, Any] | None:
         if value is None:
             return None

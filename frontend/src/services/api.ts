@@ -6,6 +6,10 @@ import type {
   ImportSettings,
   ImportSourceProfile,
   ImportSourceWrite,
+  RasterFormulaNode,
+  RasterHistogram,
+  RasterPixel,
+  RasterStyle,
 } from '../types/imports';
 import type {
   MapFeatureSummaryPage,
@@ -26,6 +30,11 @@ import type {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 type ExportFormat = 'shp' | 'gdb';
+
+export function resolveApiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${apiBaseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+}
 
 async function apiError(response: Response, fallback: string) {
   let detail = `${fallback}（${response.status}）`;
@@ -241,9 +250,11 @@ export async function deleteWorkspace(workspaceId: number) {
   if (!response.ok) throw await apiError(response, '工作空间删除失败');
 }
 
-export async function exportWorkspace(workspaceId: number) {
+export async function exportWorkspace(workspaceId: number, includeRasters = false) {
   const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}/exports`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ include_rasters: includeRasters }),
   });
   if (!response.ok) throw await apiError(response, '工作空间包导出失败');
   return response.json() as Promise<ImportJob>;
@@ -293,6 +304,71 @@ export async function getLayers() {
   const response = await fetch(`${apiBaseUrl}/api/v1/layers`);
   if (!response.ok) throw await apiError(response, '图层列表加载失败');
   return response.json() as Promise<BackendLayerSummary[]>;
+}
+
+export async function getRasterHistogram(layerId: number, band: number, bins = 96) {
+  const params = new URLSearchParams({ band: String(band), bins: String(bins) });
+  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/histogram?${params}`);
+  if (!response.ok) throw await apiError(response, '栅格直方图加载失败');
+  return response.json() as Promise<RasterHistogram>;
+}
+
+export async function getRasterPixel(
+  layerId: number,
+  x: number,
+  y: number,
+  crs = 'EPSG:3857',
+) {
+  const params = new URLSearchParams({ x: String(x), y: String(y), crs });
+  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/pixel?${params}`);
+  if (!response.ok) throw await apiError(response, '像元查询失败');
+  return response.json() as Promise<RasterPixel>;
+}
+
+export async function updateRasterStyle(layerId: number, style: RasterStyle) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/style`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(style),
+  });
+  if (!response.ok) throw await apiError(response, '栅格样式保存失败');
+  return response.json() as Promise<BackendLayerSummary>;
+}
+
+export async function deriveRaster(
+  layerId: number,
+  name: string,
+  formula: RasterFormulaNode,
+  style?: RasterStyle,
+) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/derive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, formula, style }),
+  });
+  if (!response.ok) throw await apiError(response, '派生栅格任务提交失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function exportRasters(layerIds: number[]) {
+  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/exports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format: 'cog', layer_ids: layerIds }),
+  });
+  if (!response.ok) throw await apiError(response, '栅格导出任务提交失败');
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function downloadRasterExport(jobId: string) {
+  const response = await fetch(
+    `${apiBaseUrl}/api/v1/rasters/exports/${encodeURIComponent(jobId)}/download`,
+  );
+  if (!response.ok) throw await apiError(response, '栅格成果下载失败');
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('content-disposition'), 'raster-cog.zip'),
+  };
 }
 
 export async function createManualLayer(name?: string) {
@@ -384,11 +460,23 @@ export async function testImportSource(sourceId: string, password?: string) {
   return response.json() as Promise<{ ok: boolean; message: string }>;
 }
 
-export async function updateImportOptions(cachePath: string, batchSize: number) {
+export async function updateImportOptions(
+  cachePath: string,
+  batchSize: number,
+  rasterStorePath: string,
+  rasterScratchPath: string,
+  rasterQuotaGb: number,
+) {
   const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources/options`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cache_path: cachePath, batch_size: batchSize }),
+    body: JSON.stringify({
+      cache_path: cachePath,
+      batch_size: batchSize,
+      raster_store_path: rasterStorePath,
+      raster_scratch_path: rasterScratchPath,
+      raster_quota_gb: rasterQuotaGb,
+    }),
   });
   if (!response.ok) throw await apiError(response, '导入选项保存失败');
   return response.json() as Promise<ImportSettings>;

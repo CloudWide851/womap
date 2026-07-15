@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shutil
 from pathlib import Path
 from typing import Literal
@@ -12,11 +13,14 @@ from geoalchemy2.shape import from_shape
 from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobStatus, WorkspacePackageJobProgressDetail
 from app.features.projects.repository import ProjectRepository
+from app.features.rasters.processor import RasterProcessor
+from app.features.rasters.storage import RasterStorage
 from app.features.workspaces.package_io import (
     MAX_COMPRESSED_BYTES,
     WorkspacePackageError,
     build_workspace_package,
     extract_geopackage,
+    extract_raster_assets,
     read_package_layer,
     validate_workspace_package,
 )
@@ -56,12 +60,13 @@ class WorkspacePackageService:
         self.workspace_service = workspace_service
         self.settings = get_settings()
 
-    async def queue_export(self, workspace_id: int) -> JobStatus:
+    async def queue_export(self, workspace_id: int, *, include_rasters: bool = False) -> JobStatus:
         await self.workspace_service.get_workspace(workspace_id)
         return await self.repository.create_job(
             job_type="workspace-export",
             workspace_id=workspace_id,
             operation="export",
+            payload={"include_rasters": include_rasters},
         )
 
     async def save_and_preview(self, upload: UploadFile) -> WorkspacePackagePreview:
@@ -88,6 +93,13 @@ class WorkspacePackageService:
         provider_ids = {provider.id for provider in self.settings.maps.enabled_providers}
         basemap_missing = manifest.basemap.id not in provider_ids
         warnings = ["本机缺少包内底图，导入后将回退到默认底图。"] if basemap_missing else []
+        referenced_rasters = sum(
+            layer.kind == "raster" and layer.asset_member is None for layer in manifest.layers
+        )
+        if referenced_rasters:
+            warnings.append(
+                f"包内有 {referenced_rasters} 个栅格仅保存引用；本机无匹配数据时将跳过。"
+            )
         return WorkspacePackagePreview(
             upload_token=token,
             workspace_name=manifest.workspace_name,
@@ -174,9 +186,40 @@ class WorkspacePackageService:
         detail.workspace_id = workspace_id
         detail.total_features = sum(state.layer.feature_count for state in workspace.layers)
         layer_features: dict[int, list[dict]] = {}
+        raster_assets: dict[int, Path] = {}
+        include_rasters = bool((job.payload or {}).get("include_rasters"))
+        storage = None
+        if include_rasters:
+            storage = RasterStorage(
+                self.settings.imports.raster_store_path,
+                self.settings.imports.raster_scratch_path,
+                self.settings.imports.raster_quota_gb,
+            )
         processed = 0
         for state in workspace.layers:
             detail.current_layer = state.layer.name
+            if state.layer.kind == "raster":
+                layer_features[state.layer.id] = []
+                raster_layer = await self.repository.get_layer(state.layer.id)
+                if (
+                    include_rasters
+                    and raster_layer is not None
+                    and raster_layer.data_path
+                    and storage is not None
+                ):
+                    try:
+                        raster_assets[state.layer.id] = storage.assert_managed(
+                            raster_layer.data_path
+                        )
+                    except ValueError:
+                        detail.warnings.append(
+                            f"栅格 {state.layer.name} 不在托管目录，工作空间包仅保留引用。"
+                        )
+                elif not include_rasters:
+                    detail.warnings.append(
+                        f"栅格 {state.layer.name} 未内嵌，工作空间包仅保留引用。"
+                    )
+                continue
             rows = await self.repository.list_feature_rows(state.layer.id, state.config.selection)
             layer_features[state.layer.id] = rows
             processed += len(rows)
@@ -197,6 +240,7 @@ class WorkspacePackageService:
             workspace=workspace,
             basemap=basemap,
             layer_features=layer_features,
+            raster_assets=raster_assets,
         )
         detail.stage = "done"
         detail.current_layer = None
@@ -221,15 +265,25 @@ class WorkspacePackageService:
         shutil.rmtree(extract_dir, ignore_errors=True)
         try:
             gpkg_path = await asyncio.to_thread(extract_geopackage, package, extract_dir)
+            raster_assets = await asyncio.to_thread(
+                extract_raster_assets, package, extract_dir / "rasters"
+            )
             layer_rows = {}
             for layer_manifest in manifest.layers:
                 detail.current_layer = layer_manifest.name
-                layer_rows[layer_manifest.package_layer] = await asyncio.to_thread(
-                    read_package_layer,
-                    gpkg_path,
-                    layer_manifest,
+                layer_rows[layer_manifest.package_layer] = (
+                    []
+                    if layer_manifest.kind == "raster"
+                    else await asyncio.to_thread(
+                        read_package_layer,
+                        gpkg_path,
+                        layer_manifest,
+                    )
                 )
-            imported = await self._persist_import(job, manifest, layer_rows)
+            imported, warnings = await self._persist_import(
+                job, manifest, layer_rows, raster_assets
+            )
+            detail.warnings.extend(warnings)
         finally:
             shutil.rmtree(extract_dir, ignore_errors=True)
         detail.workspace_id = imported.id
@@ -246,7 +300,13 @@ class WorkspacePackageService:
         )
         self._upload_path(token).unlink(missing_ok=True)
 
-    async def _persist_import(self, job, manifest, layer_rows: dict[str, list[dict]]) -> Project:
+    async def _persist_import(
+        self,
+        job,
+        manifest,
+        layer_rows: dict[str, list[dict]],
+        raster_assets: dict[str, Path],
+    ) -> tuple[Project, list[str]]:
         strategy: Literal["copy", "replace"] = job.payload.get("strategy", "copy")
         workspace_repository = WorkspaceRepository(self.repository.session)
         default_project = await ProjectRepository(self.repository.session).ensure_default_project()
@@ -265,10 +325,109 @@ class WorkspacePackageService:
             workspace_name = await self._copy_name(manifest.workspace_name, workspace_repository)
             revision = 1
         imported_configs: list[WorkspaceLayerConfig] = []
+        warnings: list[str] = []
+        installed_assets: list[Path] = []
+        existing_layers = await workspace_repository.list_layers()
+        existing_by_dataset = {
+            str((layer.performance or {}).get("dataset_id")): layer
+            for layer in existing_layers
+            if (layer.performance or {}).get("dataset_id")
+        }
         try:
-            for order, layer_manifest in enumerate(manifest.layers):
+            for layer_manifest in manifest.layers:
                 rows = layer_rows[layer_manifest.package_layer]
                 dataset_id = f"workspace:{workspace_uuid}:{layer_manifest.package_layer}"
+                if layer_manifest.kind == "raster":
+                    embedded = raster_assets.get(layer_manifest.package_layer)
+                    if embedded is None:
+                        existing = existing_by_dataset.get(str(layer_manifest.dataset_id))
+                        existing_fingerprint = str(
+                            (existing.performance or {}).get("fingerprint") if existing else ""
+                        )
+                        if (
+                            existing is None
+                            or existing.geometry_type != "Raster"
+                            or not existing.data_path
+                            or (
+                                layer_manifest.fingerprint
+                                and existing_fingerprint != layer_manifest.fingerprint
+                            )
+                        ):
+                            warnings.append(
+                                f"栅格 {layer_manifest.name} 未内嵌且本机无匹配资产，已跳过。"
+                            )
+                            continue
+                        imported_configs.append(
+                            WorkspaceLayerConfig(
+                                layer_id=existing.id,
+                                dataset_id=str(layer_manifest.dataset_id),
+                                visible=layer_manifest.config.visible,
+                                opacity=layer_manifest.config.opacity,
+                                order=len(imported_configs),
+                                selection=WorkspaceFeatureSelection(mode="all"),
+                                raster_style=layer_manifest.config.raster_style,
+                            )
+                        )
+                        continue
+                    asset_path, raster_metadata, bounds = await asyncio.to_thread(
+                        self._install_raster_asset,
+                        embedded,
+                        layer_manifest.fingerprint,
+                    )
+                    installed_assets.append(asset_path)
+                    raster_style = (
+                        layer_manifest.config.raster_style.model_dump(mode="json")
+                        if layer_manifest.config.raster_style
+                        else {
+                            "schema_version": "womap.raster-style/v1",
+                            "mode": "rgb" if raster_metadata.get("band_count", 0) >= 3 else "grayscale",
+                            "bands": [1, 2, 3]
+                            if raster_metadata.get("band_count", 0) >= 3
+                            else [1],
+                            "stretch": "percentile",
+                            "gamma": 1.0,
+                            "nodata_transparent": True,
+                        }
+                    )
+                    layer = Layer(
+                        project_id=default_project.id,
+                        name=layer_manifest.name,
+                        source_type="workspace-raster",
+                        geometry_type="Raster",
+                        feature_count=0,
+                        crs="EPSG:3857",
+                        bounds=bounds,
+                        style={"raster": raster_style},
+                        fields=[],
+                        performance={
+                            "source_id": f"workspace-package:{workspace_uuid}",
+                            "dataset_id": dataset_id,
+                            "container": f"{workspace_name}.womap.zip",
+                            "layer_name": layer_manifest.name,
+                            "fingerprint": layer_manifest.fingerprint,
+                            "raster": raster_metadata,
+                            "staging": False,
+                            "import_job_id": job.id,
+                        },
+                        data_path=str(asset_path),
+                        visible=layer_manifest.config.visible,
+                        locked=True,
+                        opacity=layer_manifest.config.opacity,
+                    )
+                    self.repository.session.add(layer)
+                    await self.repository.session.flush()
+                    imported_configs.append(
+                        WorkspaceLayerConfig(
+                            layer_id=layer.id,
+                            dataset_id=dataset_id,
+                            visible=layer_manifest.config.visible,
+                            opacity=layer_manifest.config.opacity,
+                            order=len(imported_configs),
+                            selection=WorkspaceFeatureSelection(mode="all"),
+                            raster_style=layer_manifest.config.raster_style,
+                        )
+                    )
+                    continue
                 layer = Layer(
                     project_id=default_project.id,
                     name=layer_manifest.name,
@@ -328,7 +487,7 @@ class WorkspacePackageService:
                         dataset_id=dataset_id,
                         visible=layer_manifest.config.visible,
                         opacity=layer_manifest.config.opacity,
-                        order=order,
+                        order=len(imported_configs),
                         selection=WorkspaceFeatureSelection(mode="all"),
                     )
                 )
@@ -354,10 +513,40 @@ class WorkspacePackageService:
                 target.current_view = definition.model_dump(mode="json")
             await self.repository.session.commit()
             await self.repository.session.refresh(target)
-            return target
+            return target, warnings
         except Exception:
             await self.repository.session.rollback()
+            for asset in installed_assets:
+                asset.unlink(missing_ok=True)
             raise
+
+    def _install_raster_asset(
+        self, source: Path, fingerprint: str | None
+    ) -> tuple[Path, dict, dict[str, float]]:
+        storage = RasterStorage(
+            self.settings.imports.raster_store_path,
+            self.settings.imports.raster_scratch_path,
+            self.settings.imports.raster_quota_gb,
+        )
+        storage.preflight(source.stat().st_size)
+        metadata, bounds = RasterProcessor.inspect(source)
+        digest = fingerprint or self._sha256(source)
+        temporary = storage.scratch / f"package-{uuid4().hex}.tif"
+        destination = storage.root / f"workspace-{uuid4().hex[:16]}-{digest[:16]}.tif"
+        try:
+            shutil.copyfile(source, temporary)
+            temporary.replace(destination)
+            return destination, metadata, bounds
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     async def download_path(self, job_id: str) -> tuple[Path, str]:
         job = await self.repository.get_job(job_id)

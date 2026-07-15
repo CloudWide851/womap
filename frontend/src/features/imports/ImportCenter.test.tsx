@@ -11,6 +11,7 @@ const queuedJob = {
   progress: 0,
   message: '任务已进入队列。',
   detail: {
+    kind: 'import' as const,
     stage: 'queued',
     source_id: 'local-1',
     dataset_id: null,

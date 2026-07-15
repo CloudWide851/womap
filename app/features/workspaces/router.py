@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
     File,
     HTTPException,
@@ -25,6 +26,7 @@ from app.features.workspaces.schemas import (
     WorkspaceCatalogResponse,
     WorkspaceCreate,
     WorkspaceDetail,
+    WorkspacePackageExportRequest,
     WorkspacePackageImportRequest,
     WorkspacePackagePreview,
     WorkspaceSummary,
@@ -84,10 +86,14 @@ async def get_workspace_catalog(
 async def export_workspace_package(
     workspace_id: int,
     background_tasks: BackgroundTasks,
+    payload: WorkspacePackageExportRequest | None = Body(default=None),
     service: WorkspacePackageService = Depends(get_workspace_package_service),
 ):
     try:
-        job = await service.queue_export(workspace_id)
+        job = await service.queue_export(
+            workspace_id,
+            include_rasters=bool(payload and payload.include_rasters),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="工作空间不存在。") from exc
     background_tasks.add_task(execute_workspace_package_job, job.id)

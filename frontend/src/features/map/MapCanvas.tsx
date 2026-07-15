@@ -14,9 +14,12 @@ import Draw from 'ol/interaction/Draw';
 import SelectInteraction from 'ol/interaction/Select';
 import type { DrawEvent } from 'ol/interaction/Draw';
 import Map from 'ol/Map';
+import MapBrowserEvent from 'ol/MapBrowserEvent';
 import View from 'ol/View';
 import TileLayer from 'ol/layer/Tile';
 import VectorLayer from 'ol/layer/Vector';
+import WebGLTileLayer from 'ol/layer/WebGLTile';
+import type { Style as WebGLTileStyle } from 'ol/layer/WebGLTile';
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj';
 import { getRenderPixel } from 'ol/render';
 import type RenderEvent from 'ol/render/Event';
@@ -27,15 +30,24 @@ import Style from 'ol/style/Style';
 import OSM from 'ol/source/OSM';
 import VectorSource from 'ol/source/Vector';
 import XYZ from 'ol/source/XYZ';
+import GeoTIFFSource from 'ol/source/GeoTIFF';
 
-import { createLayerFeature, createManualLayer, getLayerFeatures } from '../../services/api';
+import {
+  createLayerFeature,
+  createManualLayer,
+  getLayerFeatures,
+  getRasterPixel,
+  resolveApiUrl,
+} from '../../services/api';
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceContextStore } from '../../stores/useWorkspaceContextStore';
 import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
+import type { RasterFormulaNode, RasterStyle } from '../../types/imports';
 import type { BasemapProvider, FeatureAttributePreview, WorkspaceLayer } from '../../types/workspace';
 import { normalizeBackendLayer } from '../layers/backendLayer';
+import { supportsRasterWebGLPreview } from '../rasters/formulaParser';
 import { MapToolbox } from './MapToolbox';
 import { MapSwipeDivider } from './MapSwipeDivider';
 import { createFirstVertexInteraction, resolveDrawingTarget } from './polygonEditing';
@@ -49,7 +61,113 @@ interface BackendLayerFocusDetail {
   bounds: Record<string, number>;
 }
 
+interface RasterRuntime {
+  layer: WebGLTileLayer;
+  sourceKey: string;
+}
+
 const featureStyleCache = new globalThis.Map<string, Style>();
+
+const rasterColorRamps: Record<string, string[]> = {
+  magma: ['#140e36', '#5a167c', '#b73779', '#f37f44', '#fcfdbf'],
+  viridis: ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'],
+  plasma: ['#0d0887', '#7e03a8', '#cc4778', '#f89540', '#f0f921'],
+  cividis: ['#00224e', '#35456c', '#6c6e72', '#a59c74', '#fee838'],
+};
+
+function collectFormulaBands(node: RasterFormulaNode | null, bands = new Set<number>()) {
+  if (!node) return bands;
+  if (node.kind === 'band') bands.add(node.band);
+  if (node.kind === 'unary') collectFormulaBands(node.argument, bands);
+  if (node.kind === 'binary') {
+    collectFormulaBands(node.left, bands);
+    collectFormulaBands(node.right, bands);
+  }
+  if (node.kind === 'function') node.arguments.forEach((argument) => collectFormulaBands(argument, bands));
+  return bands;
+}
+
+function formulaExpression(node: RasterFormulaNode, sourceBands: number[]): unknown {
+  if (node.kind === 'band') return ['band', Math.max(1, sourceBands.indexOf(node.band) + 1)];
+  if (node.kind === 'number') return node.value;
+  if (node.kind === 'unary') {
+    const value = formulaExpression(node.argument, sourceBands);
+    return node.operator === '-' ? ['*', -1, value] : value;
+  }
+  if (node.kind === 'binary') {
+    return [
+      node.operator,
+      formulaExpression(node.left, sourceBands),
+      formulaExpression(node.right, sourceBands),
+    ];
+  }
+  const values = node.arguments.map((argument) => formulaExpression(argument, sourceBands));
+  if (node.name === 'min') return ['case', ['<=', values[0], values[1]], values[0], values[1]];
+  if (node.name === 'max') return ['case', ['>=', values[0], values[1]], values[0], values[1]];
+  if (node.name === 'clamp') return ['clamp', values[0], values[1], values[2]];
+  if (node.name === 'log') throw new Error('OpenLayers WebGL 不支持 log 公式预览。');
+  return [node.name, values[0]];
+}
+
+function rasterSourceBands(style: RasterStyle) {
+  if (style.mode === 'formula' && style.formula) {
+    return Array.from(collectFormulaBands(style.formula)).sort((left, right) => left - right);
+  }
+  return style.bands;
+}
+
+function rasterWebGLStyle(style: RasterStyle): WebGLTileStyle {
+  const webglStyle: WebGLTileStyle = {
+    gamma: style.gamma,
+    saturation: style.mode === 'grayscale' ? -1 : 0,
+    contrast: style.stretch === 'percentile' ? 0.08 : 0,
+  };
+  if (style.mode === 'classified') {
+    const colors = rasterColorRamps[style.color_ramp] ?? rasterColorRamps.magma;
+    webglStyle.color = [
+      'interpolate',
+      ['linear'],
+      ['band', 1],
+      0,
+      colors[0],
+      0.25,
+      colors[1],
+      0.5,
+      colors[2],
+      0.75,
+      colors[3],
+      1,
+      colors[4],
+    ];
+  } else if (
+    style.mode === 'formula' &&
+    style.formula &&
+    supportsRasterWebGLPreview(style.formula)
+  ) {
+    const bands = rasterSourceBands(style);
+    const value = ['clamp', ['/', ['+', formulaExpression(style.formula, bands), 1], 2], 0, 1];
+    webglStyle.color = ['array', value, value, value, 1];
+  }
+  return webglStyle;
+}
+
+function createRasterSource(layer: WorkspaceLayer) {
+  const style = layer.rasterStyle;
+  if (!layer.raster || !style) return null;
+  return new GeoTIFFSource({
+    sources: [{ url: resolveApiUrl(layer.raster.asset_url), bands: rasterSourceBands(style) }],
+    normalize: style.stretch !== 'none',
+    convertToRGB: 'auto',
+    interpolate: true,
+    transition: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 120,
+    sourceOptions: {
+      allowFullFile: false,
+      maxRanges: 1,
+      blockSize: 64 * 1024,
+      cacheSize: 48,
+    },
+  });
+}
 
 function getAnalysisOverlayStyle(feature: FeatureLike) {
   const kind = String(feature.get('analysisKind'));
@@ -206,6 +324,8 @@ export function MapCanvas() {
   const backendLayersRef = useRef(
     new globalThis.Map<string, VectorLayer<VectorSource<BackendFeature>>>(),
   );
+  const rasterLayersRef = useRef(new globalThis.Map<string, RasterRuntime>());
+  const warnedRasterFormulaIdsRef = useRef(new Set<string>());
   const backendAbortRef = useRef<AbortController | null>(null);
   const truncatedLayerIdsRef = useRef(new Set<string>());
   const drawInteractionRef = useRef<Draw | null>(null);
@@ -374,6 +494,7 @@ export function MapCanvas() {
       analysisOverlayLayerRef.current = null;
       backendAbortRef.current?.abort();
       backendLayersRef.current.clear();
+      rasterLayersRef.current.clear();
     };
   }, [setViewState]);
 
@@ -504,7 +625,9 @@ export function MapCanvas() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || mapReady === 0) return;
-    const backendLayers = layers.filter((layer) => layer.source === 'backend');
+    const backendLayers = layers.filter(
+      (layer) => layer.source === 'backend' && layer.kind !== 'raster',
+    );
     const activeIds = new Set(backendLayers.map((layer) => layer.id));
 
     for (const [layerId, vectorLayer] of backendLayersRef.current) {
@@ -523,6 +646,7 @@ export function MapCanvas() {
           style: (feature) =>
             getFeatureStyle(feature, layersRef.current, selectedFeatureIdRef.current),
         });
+        vectorLayer.setZIndex(40);
         backendLayersRef.current.set(workspaceLayer.id, vectorLayer);
         const insertAt = Math.max(0, map.getLayers().getLength() - 1);
         map.getLayers().insertAt(insertAt, vectorLayer);
@@ -535,9 +659,72 @@ export function MapCanvas() {
 
   useEffect(() => {
     const map = mapInstanceRef.current;
+    if (!map || mapReady === 0) return;
+    const rasterLayers = layers.filter(
+      (layer) => layer.source === 'backend' && layer.kind === 'raster' && layer.rasterStyle,
+    );
+    const activeIds = new Set(rasterLayers.map((layer) => layer.id));
+    for (const [layerId, runtime] of rasterLayersRef.current) {
+      if (!activeIds.has(layerId)) {
+        map.removeLayer(runtime.layer);
+        runtime.layer.setSource(null);
+        rasterLayersRef.current.delete(layerId);
+      }
+    }
+    for (const workspaceLayer of rasterLayers) {
+      const formula = workspaceLayer.rasterStyle?.formula;
+      const previewUnsupported = Boolean(
+        workspaceLayer.rasterStyle?.mode === 'formula' &&
+        formula &&
+        !supportsRasterWebGLPreview(formula),
+      );
+      if (previewUnsupported && !warnedRasterFormulaIdsRef.current.has(workspaceLayer.id)) {
+        warnedRasterFormulaIdsRef.current.add(workspaceLayer.id);
+        showNotice({
+          tone: 'warning',
+          title: `${workspaceLayer.name} 公式仅支持后端物化`,
+          detail: '当前 WebGL 不支持 log，即时预览已关闭，不会退化为错误波段。',
+        });
+      } else if (!previewUnsupported) {
+        warnedRasterFormulaIdsRef.current.delete(workspaceLayer.id);
+      }
+      const sourceKey = `${workspaceLayer.raster?.fingerprint ?? ''}:${JSON.stringify(
+        rasterSourceBands(workspaceLayer.rasterStyle!),
+      )}:${workspaceLayer.rasterStyle?.stretch}`;
+      let runtime = rasterLayersRef.current.get(workspaceLayer.id);
+      if (!runtime) {
+        const source = createRasterSource(workspaceLayer);
+        if (!source) continue;
+        const webglLayer = new WebGLTileLayer({
+          source,
+          style: rasterWebGLStyle(workspaceLayer.rasterStyle!),
+          visible: workspaceLayer.visible,
+          opacity: workspaceLayer.opacity,
+          cacheSize: 256,
+        });
+        webglLayer.setZIndex(20);
+        runtime = { layer: webglLayer, sourceKey };
+        rasterLayersRef.current.set(workspaceLayer.id, runtime);
+        map.getLayers().insertAt(Math.min(2, map.getLayers().getLength()), webglLayer);
+      } else if (runtime.sourceKey !== sourceKey) {
+        const source = createRasterSource(workspaceLayer);
+        if (source) {
+          runtime.layer.setSource(source);
+          runtime.sourceKey = sourceKey;
+        }
+      }
+      runtime.layer.setStyle(rasterWebGLStyle(workspaceLayer.rasterStyle!));
+      runtime.layer.setVisible(workspaceLayer.visible);
+      runtime.layer.setOpacity(workspaceLayer.opacity);
+    }
+    map.render();
+  }, [layers, mapReady, showNotice]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
     if (!map || mapReady === 0 || workspaceMode !== 'analysis') return;
     const selectableLayers = layers
-      .filter((layer) => layer.source === 'backend' && layer.visible)
+      .filter((layer) => layer.source === 'backend' && layer.kind !== 'raster' && layer.visible)
       .map((layer) => backendLayersRef.current.get(layer.id))
       .filter((layer): layer is VectorLayer<VectorSource<BackendFeature>> => Boolean(layer));
     const interaction = new SelectInteraction({ layers: selectableLayers, hitTolerance: 7 });
@@ -791,7 +978,7 @@ export function MapCanvas() {
         const controller = new AbortController();
         backendAbortRef.current = controller;
         const visibleLayers = layersRef.current.filter(
-          (layer) => layer.source === 'backend' && layer.visible,
+          (layer) => layer.source === 'backend' && layer.kind !== 'raster' && layer.visible,
         );
         void Promise.all(
           visibleLayers.map(async (workspaceLayer) => {
@@ -884,6 +1071,53 @@ export function MapCanvas() {
     window.addEventListener('womap:focus-backend-layer', handleFocusLayer);
     return () => window.removeEventListener('womap:focus-backend-layer', handleFocusLayer);
   }, [showNotice]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || mapReady === 0) return;
+    let pixelClick: ((event: MapBrowserEvent) => void) | null = null;
+    const cancel = () => {
+      if (pixelClick) map.un('singleclick', pixelClick);
+      pixelClick = null;
+    };
+    const handleStart = (event: Event) => {
+      const layerId = Number((event as CustomEvent<{ layerId: number }>).detail?.layerId);
+      if (!Number.isInteger(layerId)) return;
+      cancel();
+      pixelClick = (mapEvent) => {
+        cancel();
+        const [x, y] = mapEvent.coordinate;
+        void getRasterPixel(layerId, x, y)
+          .then((pixel) => {
+            window.dispatchEvent(new CustomEvent('womap:raster-pixel-picked', { detail: pixel }));
+            showNotice({
+              tone: 'success',
+              title: pixel.nodata ? '当前位置为 NoData' : '已读取像元',
+              detail: pixel.nodata
+                ? `${x.toFixed(2)}, ${y.toFixed(2)}`
+                : pixel.values.map((value) => value === null ? '—' : Number(value).toFixed(3)).join(' · '),
+            });
+          })
+          .catch((error) => showNotice({
+            tone: 'warning',
+            title: '像元读取失败',
+            detail: error instanceof Error ? error.message : '当前坐标不在栅格范围内。',
+          }));
+      };
+      map.once('singleclick', pixelClick);
+      showNotice({ tone: 'info', title: '像元拾取已启用', detail: '请在地图影像范围内单击。' });
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') cancel();
+    };
+    window.addEventListener('womap:start-raster-pixel-pick', handleStart);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      cancel();
+      window.removeEventListener('womap:start-raster-pixel-pick', handleStart);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [mapReady, showNotice]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;

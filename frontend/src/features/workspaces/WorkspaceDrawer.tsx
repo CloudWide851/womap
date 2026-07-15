@@ -90,6 +90,7 @@ export function WorkspaceDrawer({ open, onClose }: WorkspaceDrawerProps) {
   const [packagePreview, setPackagePreview] = useState<WorkspacePackagePreview | null>(null);
   const [packageStrategy, setPackageStrategy] = useState<'copy' | 'replace'>('copy');
   const [packageBusy, setPackageBusy] = useState(false);
+  const [includeRasterAssets, setIncludeRasterAssets] = useState(false);
 
   useEffect(() => {
     if (open) void refreshCatalog();
@@ -177,7 +178,7 @@ export function WorkspaceDrawer({ open, onClose }: WorkspaceDrawerProps) {
     setPackageBusy(true);
     try {
       if (dirty) await saveCurrent();
-      const job = await exportWorkspace(current.id);
+      const job = await exportWorkspace(current.id, includeRasterAssets);
       showNotice({ tone: 'info', title: '正在生成工作空间包', detail: '完成后会自动下载。' });
       await waitForJob(job.id);
       const result = await downloadWorkspacePackage(job.id);
@@ -304,9 +305,9 @@ export function WorkspaceDrawer({ open, onClose }: WorkspaceDrawerProps) {
                             checked={includedIds.has(layer.id)}
                             onChange={(event) => setLayerIncluded(layer, event.target.checked)}
                           >
-                            {layer.name} <em>{layer.feature_count}</em>
+                            {layer.name} <em>{layer.kind === 'raster' ? `${layer.raster?.band_count ?? 0} 波段` : layer.feature_count}</em>
                           </Checkbox>
-                          {state && (
+                          {state && layer.kind !== 'raster' && (
                             <div className="workspace-feature-choice">
                               <Radio.Group
                                 size="small"
@@ -357,7 +358,15 @@ export function WorkspaceDrawer({ open, onClose }: WorkspaceDrawerProps) {
           </section>
 
           <section className="workspace-section workspace-package-section">
-            <div className="workspace-section-heading"><strong>可移植工作空间包</strong><span>GeoPackage · 不包含凭据与瓦片</span></div>
+            <div className="workspace-section-heading"><strong>可移植工作空间包</strong><span>GeoPackage + 可选 COG · 不包含凭据与瓦片</span></div>
+            {current.layers.some((state) => state.layer.kind === 'raster') && (
+              <Checkbox
+                checked={includeRasterAssets}
+                onChange={(event) => setIncludeRasterAssets(event.target.checked)}
+              >
+                内嵌托管栅格（文件可能较大）
+              </Checkbox>
+            )}
             <div className="workspace-package-actions">
               <Button icon={<Download size={15} />} loading={packageBusy} onClick={handleExport}>导出 .womap.zip</Button>
               <Upload {...uploadProps}>

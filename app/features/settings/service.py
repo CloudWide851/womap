@@ -124,6 +124,9 @@ class SettingsService:
         return ImportSettingsResponse(
             cache_path=settings.cache_path,
             batch_size=settings.batch_size,
+            raster_store_path=settings.raster_store_path,
+            raster_scratch_path=settings.raster_scratch_path,
+            raster_quota_gb=settings.raster_quota_gb,
             sources=[self._source_response(source.model_dump()) for source in settings.sources],
         )
 
@@ -188,6 +191,9 @@ class SettingsService:
         imports_config = self._ensure_mapping(raw_config, "imports")
         imports_config["cache_path"] = payload.cache_path.strip()
         imports_config["batch_size"] = payload.batch_size
+        imports_config["raster_store_path"] = payload.raster_store_path.strip()
+        imports_config["raster_scratch_path"] = payload.raster_scratch_path.strip()
+        imports_config["raster_quota_gb"] = payload.raster_quota_gb
         self._write_local_config(raw_config)
         return await self.get_import_settings()
 

@@ -1,9 +1,10 @@
-import { Progress, Tooltip } from 'antd';
-import { Activity, CheckCircle2, Clock3, LoaderCircle, PauseCircle, XCircle } from 'lucide-react';
+import { Button, Progress, Tooltip } from 'antd';
+import { Activity, CheckCircle2, Clock3, Download, LoaderCircle, PauseCircle, XCircle } from 'lucide-react';
 import { memo, useEffect } from 'react';
 
 import { useJobsStore } from '../../stores/useJobsStore';
 import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
+import { downloadRasterExport } from '../../services/api';
 import type { ImportJob } from '../../types/imports';
 
 const statusLabels: Record<ImportJob['status'], string> = {
@@ -31,6 +32,8 @@ function jobLabel(jobType: string) {
   if (jobType === 'workspace-import') return '工作空间导入';
   if (jobType === 'spatial-analysis') return '空间分析';
   if (jobType === 'spatial-analysis-export') return '分析结果导出';
+  if (jobType === 'raster-derive') return '派生栅格';
+  if (jobType === 'raster-export') return 'COG 导出';
   return '后台任务';
 }
 
@@ -41,6 +44,15 @@ interface JobItemProps {
 const JobItem = memo(function JobItem({ job }: JobItemProps) {
   const StatusIcon = statusIcons[job.status];
   const openAnalysis = useSpatialAnalysisStore((state) => state.openHistory);
+  const downloadRaster = async () => {
+    const result = await downloadRasterExport(job.id);
+    const url = URL.createObjectURL(result.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = result.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <div
       className={`job-item is-${job.status}`}
@@ -76,6 +88,11 @@ const JobItem = memo(function JobItem({ job }: JobItemProps) {
         aria-label={`${job.job_type} 进度 ${job.progress}%`}
       />
       <p>{job.message}</p>
+      {job.job_type === 'raster-export' && job.status === 'done' && (
+        <Button size="small" icon={<Download size={13} />} onClick={() => void downloadRaster()}>
+          下载
+        </Button>
+      )}
     </div>
   );
 });

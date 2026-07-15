@@ -1,5 +1,5 @@
 import { Slider, Tag, Tooltip } from 'antd';
-import { Eye, EyeOff, Lock, PanelRightOpen, Plus, SlidersHorizontal, Unlock } from 'lucide-react';
+import { Eye, EyeOff, Image, Lock, PanelRightOpen, Plus, SlidersHorizontal, Unlock } from 'lucide-react';
 import { memo } from 'react';
 
 import { IconTooltipButton } from '../../components/IconTooltipButton';
@@ -31,11 +31,15 @@ const LayerItem = memo(function LayerItem({
         onClick={() => onSelect(layer.id)}
         aria-pressed={selected}
       >
-        <span className="layer-swatch" style={{ background: layer.color }} />
+        <span className={`layer-swatch ${layer.kind === 'raster' ? 'is-raster' : ''}`} style={{ background: layer.color }}>
+          {layer.kind === 'raster' && <Image size={11} aria-hidden="true" />}
+        </span>
         <span className="layer-main">
           <strong>{layer.name}</strong>
           <span>
-            {layer.geometryType} · {layer.featureCount} 个要素
+            {layer.kind === 'raster'
+              ? `${layer.raster?.width.toLocaleString('zh-CN') ?? 0} × ${layer.raster?.height.toLocaleString('zh-CN') ?? 0} · ${layer.raster?.band_count ?? 0} 波段`
+              : `${layer.geometryType} · ${layer.featureCount} 个要素`}
           </span>
         </span>
       </button>

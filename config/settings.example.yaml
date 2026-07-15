@@ -19,6 +19,9 @@ frontend:
 imports:
   cache_path: .womap-data/import-cache
   batch_size: 2000
+  raster_store_path: .womap-data/rasters
+  raster_scratch_path: .womap-data/raster-scratch
+  raster_quota_gb: 200
   sources: []
 
 database:

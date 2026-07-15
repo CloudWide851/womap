@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.jobs.schemas import (
     JobProgressDetail,
+    RasterExportJobProgressDetail,
+    RasterJobProgressDetail,
     JobStatus,
     SpatialAnalysisJobProgressDetail,
     WorkspacePackageJobProgressDetail,
@@ -35,7 +37,14 @@ class JobRepository:
         result = dict(job.result or {})
         detail = result.get("detail") if isinstance(result.get("detail"), dict) else {}
         detail = dict(detail)
-        if job.job_type.startswith("workspace-"):
+        detail_kind = detail.get("kind")
+        if detail_kind == "raster-export" or job.job_type == "raster-export":
+            detail.setdefault("kind", "raster-export")
+            detail_model = RasterExportJobProgressDetail.model_validate(detail)
+        elif detail_kind == "raster-process" or job.job_type.startswith("raster-"):
+            detail.setdefault("kind", "raster-process")
+            detail_model = RasterJobProgressDetail.model_validate(detail)
+        elif job.job_type.startswith("workspace-"):
             detail.setdefault("kind", "workspace-package")
             detail_model = WorkspacePackageJobProgressDetail.model_validate(detail)
         elif job.job_type.startswith("spatial-analysis"):

@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { IconTooltipButton } from '../../components/IconTooltipButton';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
+import { RasterInspector } from '../rasters/RasterInspector';
 
 interface SummaryMetricProps {
   icon: ReactNode;
@@ -68,14 +69,18 @@ export function PropertiesPanel() {
           <div className="context-summary-main">
             <span className="layer-swatch" style={{ background: selectedLayer.color }} />
             <div>
-              <strong>{selectedLayer.geometryType}</strong>
-              <span>{selectedLayer.featureCount} 个要素</span>
+              <strong>{selectedLayer.kind === 'raster' ? '托管栅格' : selectedLayer.geometryType}</strong>
+              <span>
+                {selectedLayer.kind === 'raster'
+                  ? `${selectedLayer.raster?.band_count ?? 0} 波段 · COG`
+                  : `${selectedLayer.featureCount} 个要素`}
+              </span>
             </div>
             <Tag className="soft-status-tag" color={selectedLayer.visible ? 'geekblue' : 'default'}>
               {selectedLayer.visible ? '显示' : '隐藏'}
             </Tag>
           </div>
-          {selectedFeature && (
+          {selectedFeature && selectedLayer.kind !== 'raster' && (
             <div className="context-feature-focus">
               <span className="feature-nav-code">{selectedFeature.displayCode}</span>
               <div>
@@ -116,7 +121,7 @@ export function PropertiesPanel() {
             <SummaryMetric
               icon={<BoxSelect size={16} aria-hidden="true" />}
               label="索引状态"
-              value={selectedLayer.performance.indexed ? 'GiST' : '未索引'}
+              value={selectedLayer.kind === 'raster' ? 'Overview' : selectedLayer.performance.indexed ? 'GiST' : '未索引'}
             />
             <SummaryMetric
               icon={<Ruler size={16} aria-hidden="true" />}
@@ -126,9 +131,10 @@ export function PropertiesPanel() {
             <SummaryMetric
               icon={<ScanSearch size={16} aria-hidden="true" />}
               label="查看方式"
-              value="点击"
+              value={selectedLayer.kind === 'raster' ? 'Range' : '点击'}
             />
           </div>
+          {selectedLayer.kind === 'raster' && <RasterInspector layer={selectedLayer} />}
         </div>
       ) : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未选择图层" />

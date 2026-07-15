@@ -15,6 +15,7 @@ dependencies = [
     "pyogrio>=0.11.0",
     "pyproj>=3.7.0",
     "pyyaml>=6.0.0",
+    "rasterio>=1.4.0",
     "redis>=6.2.0",
     "smbprotocol>=1.15.0",
     "shapely>=2.1.0",

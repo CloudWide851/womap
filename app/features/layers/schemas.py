@@ -34,11 +34,34 @@ class LayerProvenance(BaseModel):
     fingerprint: str | None = None
 
 
+class RasterLayerBand(BaseModel):
+    index: int
+    name: str
+    dtype: str
+    nodata: float | int | None = None
+    color_interpretation: str = "undefined"
+
+
+class RasterLayerMetadata(BaseModel):
+    width: int
+    height: int
+    band_count: int
+    driver: str = "GTiff"
+    dtypes: list[str] = Field(default_factory=list)
+    nodata: list[float | int | None] = Field(default_factory=list)
+    resolution: list[float] = Field(default_factory=list)
+    byte_size: int = 0
+    bands: list[RasterLayerBand] = Field(default_factory=list)
+    asset_url: str
+    fingerprint: str
+
+
 class LayerSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
+    kind: Literal["vector", "raster"] = "vector"
     geometry_type: str
     feature_count: int
     crs: str | None = None
@@ -51,3 +74,4 @@ class LayerSummary(BaseModel):
     style: dict = Field(default_factory=dict)
     performance: LayerPerformanceState = Field(default_factory=LayerPerformanceState)
     provenance: LayerProvenance = Field(default_factory=LayerProvenance)
+    raster: RasterLayerMetadata | None = None

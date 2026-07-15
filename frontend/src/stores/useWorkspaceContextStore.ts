@@ -93,6 +93,7 @@ function runtimePayload(current: WorkspaceDetail): WorkspaceWrite {
         visible: runtime?.visible ?? state.config.visible,
         opacity: runtime?.opacity ?? state.config.opacity,
         order,
+        raster_style: runtime?.kind === 'raster' ? runtime.rasterStyle ?? null : null,
       };
     }),
   };
@@ -215,6 +216,7 @@ export const useWorkspaceContextStore = create<WorkspaceContextState>((set, get)
                 opacity: layer.opacity,
                 order: state.current.layers.length,
                 selection: emptySelection(),
+                raster_style: layer.kind === 'raster' ? layer.style.raster ?? null : null,
               },
             },
           ]

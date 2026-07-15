@@ -11,6 +11,7 @@ from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobStatus, WorkspacePackageJobProgressDetail
 from app.features.workspaces.schemas import WorkspaceFeatureSelection
 from app.models.job import Job
+from app.models.layer import Layer
 from app.models.map_feature import MapFeature
 from app.models.project import Project
 
@@ -47,6 +48,9 @@ class WorkspacePackageRepository:
 
     async def get_job(self, job_id: str) -> Job | None:
         return await self.session.get(Job, job_id)
+
+    async def get_layer(self, layer_id: int) -> Layer | None:
+        return await self.session.get(Layer, layer_id)
 
     async def update_job(
         self,

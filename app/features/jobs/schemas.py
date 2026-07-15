@@ -49,8 +49,38 @@ class SpatialAnalysisJobProgressDetail(BaseModel):
     error: str | None = None
 
 
+class RasterJobProgressDetail(BaseModel):
+    kind: Literal["raster-process"] = "raster-process"
+    stage: str = "queued"
+    operation: Literal["import", "derive"] = "import"
+    source_id: str | None = None
+    dataset_id: str | None = None
+    layer_id: int | None = None
+    dataset_name: str | None = None
+    processed_bytes: int = 0
+    total_bytes: int = 0
+    processed_blocks: int = 0
+    total_blocks: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class RasterExportJobProgressDetail(BaseModel):
+    kind: Literal["raster-export"] = "raster-export"
+    stage: str = "queued"
+    processed_layers: int = 0
+    total_layers: int = 0
+    artifact_name: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 JobDetail = Annotated[
-    JobProgressDetail | WorkspacePackageJobProgressDetail | SpatialAnalysisJobProgressDetail,
+    JobProgressDetail
+    | WorkspacePackageJobProgressDetail
+    | SpatialAnalysisJobProgressDetail
+    | RasterJobProgressDetail
+    | RasterExportJobProgressDetail,
     Field(discriminator="kind"),
 ]
 

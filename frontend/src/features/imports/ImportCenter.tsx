@@ -15,6 +15,7 @@ import {
   Database,
   FolderSync,
   HardDrive,
+  Image,
   PauseCircle,
   RefreshCw,
   Settings,
@@ -37,6 +38,7 @@ import type {
   ImportJob,
   ImportJobProgressDetail,
   ImportSettings,
+  RasterJobProgressDetail,
 } from '../../types/imports';
 
 interface ImportCenterProps {
@@ -52,10 +54,26 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-function isImportJob(
-  job: ImportJob,
-): job is ImportJob & { detail: ImportJobProgressDetail } {
+function isImportJob(job: ImportJob) {
   return job.job_type === 'import-sync' || job.job_type === 'import-data';
+}
+
+function isRasterProgress(
+  detail: ImportJob['detail'] | undefined,
+): detail is RasterJobProgressDetail {
+  return detail?.kind === 'raster-process';
+}
+
+function isVectorImportProgress(
+  detail: ImportJob['detail'] | undefined,
+): detail is ImportJobProgressDetail {
+  return detail?.kind === 'import';
+}
+
+function importJobSourceId(job: ImportJob) {
+  return job.detail.kind === 'import' || job.detail.kind === 'raster-process'
+    ? job.detail.source_id
+    : null;
 }
 
 const stateLabels = {
@@ -79,7 +97,7 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
   const showNotice = useWorkspaceStore((state) => state.showNotice);
   const completedJobRef = useRef<string | null>(null);
   const activeJob = useMemo(
-    () => jobs.filter(isImportJob).find((job) => job.detail.source_id === sourceId),
+    () => jobs.filter(isImportJob).find((job) => importJobSourceId(job) === sourceId),
     [jobs, sourceId],
   );
 
@@ -143,7 +161,7 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
     runAction(async () => {
       const job = await syncImportSource(sourceId);
       upsertJob(job);
-      showNotice({ tone: 'info', title: '开始同步目录', detail: '正在扫描 SHP 与 GDB 数据。' });
+      showNotice({ tone: 'info', title: '开始同步目录', detail: '正在识别矢量、GeoTIFF 与多维栅格数据。' });
     });
 
   const handleImport = () =>
@@ -172,7 +190,11 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
             <div key={dataset.id}>
               {showContainer && (
                 <div className="import-container-heading">
-                  {dataset.format === 'gdb' ? <Database size={15} /> : <HardDrive size={15} />}
+                  {dataset.dataset_kind === 'raster'
+                    ? <Image size={15} />
+                    : dataset.format === 'gdb'
+                      ? <Database size={15} />
+                      : <HardDrive size={15} />}
                   <span>{dataset.container}</span>
                 </div>
               )}
@@ -192,7 +214,9 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
                 <span className="import-dataset-main">
                   <strong>{dataset.layer_name}</strong>
                   <span>
-                    {dataset.geometry_type} · {dataset.feature_count.toLocaleString('zh-CN')} 个要素
+                    {dataset.dataset_kind === 'raster' && dataset.raster
+                      ? `${dataset.raster.width.toLocaleString('zh-CN')} × ${dataset.raster.height.toLocaleString('zh-CN')} · ${dataset.raster.band_count} 波段 · ${formatBytes(dataset.raster.byte_size)}`
+                      : `${dataset.geometry_type} · ${dataset.feature_count.toLocaleString('zh-CN')} 个要素`}
                   </span>
                 </span>
                 <Tag>{dataset.format.toUpperCase()}</Tag>
@@ -245,6 +269,8 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
   const imported = catalog?.datasets.filter((item) => item.import_state === 'imported') ?? [];
   const source = settings?.sources.find((item) => item.id === sourceId);
   const jobDetail = activeJob?.detail;
+  const rasterProgress = isRasterProgress(jobDetail) ? jobDetail : null;
+  const vectorProgress = isVectorImportProgress(jobDetail) ? jobDetail : null;
   const missingCrsOverride = selectedIds.some((datasetId) => {
     const dataset = catalog?.datasets.find((item) => item.id === datasetId);
     return dataset && !dataset.crs && !crsOverrides[datasetId]?.trim();
@@ -288,6 +314,11 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
             '尚未配置数据源'
           )}
         </span>
+        {settings && (
+          <Tooltip title={`栅格托管目录：${settings.raster_store_path}`}>
+            <Tag>{settings.raster_quota_gb} GB 栅格配额</Tag>
+          </Tooltip>
+        )}
         <Button icon={<Settings size={15} />} onClick={onOpenSettings}>管理数据源</Button>
         <Button
           type="primary"
@@ -319,10 +350,20 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
           />
           <div className="import-progress-metrics">
             <span>阶段 {jobDetail?.stage ?? '--'}</span>
-            <span>图层 {jobDetail?.current_layer ?? '--'}</span>
-            <span>要素 {jobDetail?.imported_features ?? 0}/{jobDetail?.total_features ?? 0}</span>
-            <span>批次 {jobDetail?.current_batch ?? 0}/{jobDetail?.total_batches ?? 0}</span>
-            <span>传输 {formatBytes(jobDetail?.transferred_bytes ?? 0)}/{formatBytes(jobDetail?.total_bytes ?? 0)}</span>
+            <span>图层 {rasterProgress?.dataset_name ?? vectorProgress?.current_layer ?? '--'}</span>
+            {rasterProgress ? (
+              <>
+                <span>数据 {formatBytes(rasterProgress.processed_bytes)}/{formatBytes(rasterProgress.total_bytes)}</span>
+                <span>块 {rasterProgress.processed_blocks}/{rasterProgress.total_blocks}</span>
+                <span>策略 COG · 512px · Overview</span>
+              </>
+            ) : (
+              <>
+                <span>要素 {vectorProgress?.imported_features ?? 0}/{vectorProgress?.total_features ?? 0}</span>
+                <span>批次 {vectorProgress?.current_batch ?? 0}/{vectorProgress?.total_batches ?? 0}</span>
+                <span>传输 {formatBytes(vectorProgress?.transferred_bytes ?? 0)}/{formatBytes(vectorProgress?.total_bytes ?? 0)}</span>
+              </>
+            )}
           </div>
           {jobDetail?.warnings.map((warning) => (
             <div key={warning} className="import-progress-warning">{warning}</div>

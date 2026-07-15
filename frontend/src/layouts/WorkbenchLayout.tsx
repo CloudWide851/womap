@@ -1,5 +1,7 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { Activity, Layers3, PanelRight, PanelRightClose } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
+import { IconTooltipButton } from '../components/IconTooltipButton';
 import { StatusBar } from '../components/StatusBar';
 import { TopToolbar } from '../components/TopToolbar';
 import { FieldPanel } from '../features/fields/FieldPanel';
@@ -36,6 +38,19 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
   const switchWorkspace = useWorkspaceContextStore((state) => state.switchWorkspace);
   const syncRuntimeLayer = useWorkspaceContextStore((state) => state.syncRuntimeLayer);
   const markDirty = useWorkspaceContextStore((state) => state.markDirty);
+  const [activeDock, setActiveDock] = useState<'layers' | 'jobs'>('layers');
+  const [dockOpen, setDockOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 820px)');
+    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) setInspectorOpen(false);
+    };
+    handleChange(query);
+    query.addEventListener('change', handleChange);
+    return () => query.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     void initializeWorkspaces();
@@ -85,20 +100,68 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
   return (
     <div className="workbench">
       <TopToolbar onOpenSettings={onOpenSettings} />
-      <div className={`workbench-body ${swipeFocused ? 'is-swipe-focused' : ''}`}>
-        <aside className="panel layer-panel" aria-hidden={swipeFocused}>
-          {!swipeFocused && (
+      <div
+        className={`workbench-body ${swipeFocused ? 'is-swipe-focused' : ''} ${dockOpen ? '' : 'is-dock-collapsed'} ${inspectorOpen ? '' : 'is-inspector-collapsed'}`}
+      >
+        <nav className="activity-rail" aria-label="工作台面板">
+          <IconTooltipButton
+            className={activeDock === 'layers' && dockOpen ? 'is-active' : ''}
+            label="图层与图斑"
+            placement="right"
+            icon={<Layers3 size={18} />}
+            onClick={() => {
+              setActiveDock('layers');
+              setDockOpen((open) => activeDock !== 'layers' || !open);
+              if (window.matchMedia('(max-width: 820px)').matches) setInspectorOpen(false);
+            }}
+            aria-pressed={activeDock === 'layers' && dockOpen}
+          />
+          <IconTooltipButton
+            className={activeDock === 'jobs' && dockOpen ? 'is-active' : ''}
+            label="后台任务"
+            placement="right"
+            icon={<Activity size={18} />}
+            onClick={() => {
+              setActiveDock('jobs');
+              setDockOpen((open) => activeDock !== 'jobs' || !open);
+              if (window.matchMedia('(max-width: 820px)').matches) setInspectorOpen(false);
+            }}
+            aria-pressed={activeDock === 'jobs' && dockOpen}
+          />
+          <span className="activity-rail-spacer" />
+          <IconTooltipButton
+            className={inspectorOpen ? 'is-active' : ''}
+            label={inspectorOpen ? '收起检查器' : '打开检查器'}
+            placement="right"
+            icon={inspectorOpen ? <PanelRightClose size={18} /> : <PanelRight size={18} />}
+            onClick={() => {
+              setInspectorOpen((open) => !open);
+              if (window.matchMedia('(max-width: 820px)').matches) setDockOpen(false);
+            }}
+            aria-pressed={inspectorOpen}
+          />
+        </nav>
+        <aside className="panel layer-panel resource-dock" aria-hidden={swipeFocused || !dockOpen}>
+          {!swipeFocused && dockOpen && (
             <>
-              {panels.layers && <LayerPanel />}
-              {panels.layers && <FeatureNavigator />}
-              {panels.jobs && <JobPanel />}
+              <header className="dock-header">
+                <span>{activeDock === 'layers' ? '资源' : '任务'}</span>
+                <small>{activeDock === 'layers' ? '图层与定位序列' : '处理队列与导出'}</small>
+              </header>
+              {activeDock === 'layers' && panels.layers && <LayerPanel />}
+              {activeDock === 'layers' && panels.layers && <FeatureNavigator />}
+              {activeDock === 'jobs' && panels.jobs && <JobPanel />}
             </>
           )}
         </aside>
         <MapCanvas />
-        <aside className="panel properties-panel" aria-hidden={swipeFocused}>
-          {!swipeFocused && (
+        <aside className="panel properties-panel context-inspector" aria-hidden={swipeFocused || !inspectorOpen}>
+          {!swipeFocused && inspectorOpen && (
             <>
+              <header className="dock-header">
+                <span>检查器</span>
+                <small>上下文、样式与数据</small>
+              </header>
               {panels.properties && <PropertiesPanel />}
               {panels.fields && <FieldPanel />}
             </>

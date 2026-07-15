@@ -162,6 +162,11 @@ class WorkspaceService:
                     visible=True,
                     opacity=layer.opacity,
                     order=index,
+                    raster_style=(
+                        (layer.style or {}).get("raster")
+                        if layer.geometry_type == "Raster"
+                        else None
+                    ),
                 )
                 for index, layer in enumerate(layers)
             ]
@@ -204,8 +209,12 @@ class WorkspaceService:
                 )
                 continue
             resolved = config.model_copy(update={"layer_id": layer.id})
-            summary = LayerRepository.to_summary(layer).model_copy(
-                update={"visible": config.visible, "opacity": config.opacity}
+            summary = LayerRepository.to_summary(layer)
+            style = dict(summary.style)
+            if summary.kind == "raster" and config.raster_style is not None:
+                style["raster"] = config.raster_style.model_dump(mode="json")
+            summary = summary.model_copy(
+                update={"visible": config.visible, "opacity": config.opacity, "style": style}
             )
             states.append(WorkspaceLayerState(config=resolved, layer=summary))
         summary = cls._summary(project, definition)

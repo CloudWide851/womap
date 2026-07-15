@@ -123,6 +123,9 @@ class ImportsSettings(BaseModel):
 
     cache_path: str = ".womap-data/import-cache"
     batch_size: int = Field(default=2000, ge=100, le=20000)
+    raster_store_path: str = ".womap-data/rasters"
+    raster_scratch_path: str = ".womap-data/raster-scratch"
+    raster_quota_gb: int = Field(default=200, ge=1, le=16384)
     sources: list[ImportSourceSettings] = Field(default_factory=list)
 
 

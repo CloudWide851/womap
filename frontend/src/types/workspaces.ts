@@ -1,4 +1,4 @@
-import type { BackendLayerSummary, ImportJob } from './imports';
+import type { BackendLayerSummary, ImportJob, RasterStyle } from './imports';
 
 export type WorkspaceFeatureSelectionMode = 'all' | 'include';
 
@@ -15,6 +15,7 @@ export interface WorkspaceLayerConfig {
   opacity: number;
   order: number;
   selection: WorkspaceFeatureSelection;
+  raster_style?: RasterStyle | null;
 }
 
 export interface WorkspaceMapView {

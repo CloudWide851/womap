@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -107,6 +108,21 @@ class ImportRepository:
     async def create_staging_layer(self, dataset: CatalogDataset, job_id: str) -> Layer:
         project = await ProjectRepository(self.session).ensure_default_project()
         style_colors = ["#4656a8", "#b45f4d", "#5b6f91", "#8a6d3b", "#725a9f"]
+        is_raster = dataset.dataset_kind == "raster"
+        raster_style = {
+            "schema_version": "womap.raster-style/v1",
+            "mode": "rgb" if dataset.raster and dataset.raster.band_count >= 3 else "grayscale",
+            "bands": [1, 2, 3] if dataset.raster and dataset.raster.band_count >= 3 else [1],
+            "stretch": "percentile",
+            "min_values": [],
+            "max_values": [],
+            "gamma": 1.0,
+            "nodata_transparent": True,
+            "color_ramp": "magma",
+            "class_breaks": [],
+            "class_colors": [],
+            "formula": None,
+        }
         layer = Layer(
             project_id=project.id,
             name=dataset.layer_name,
@@ -115,8 +131,12 @@ class ImportRepository:
             feature_count=0,
             crs="EPSG:3857",
             bounds={},
-            style={"color": style_colors[int(dataset.id[:2], 16) % len(style_colors)]},
-            fields=dataset.fields,
+            style=(
+                {"raster": raster_style}
+                if is_raster
+                else {"color": style_colors[int(dataset.id[:2], 16) % len(style_colors)]}
+            ),
+            fields=[] if is_raster else dataset.fields,
             performance={
                 "source_id": dataset.source_id,
                 "dataset_id": dataset.id,
@@ -126,10 +146,13 @@ class ImportRepository:
                 "fingerprint": dataset.fingerprint,
                 "staging": True,
                 "import_job_id": job_id,
+                "raster": (
+                    dataset.raster.model_dump(exclude={"source_uri"}) if dataset.raster else None
+                ),
             },
-            data_path=dataset.relative_path,
+            data_path=None if is_raster else dataset.relative_path,
             visible=False,
-            locked=False,
+            locked=is_raster,
             opacity=1.0,
         )
         self.session.add(layer)
@@ -173,6 +196,38 @@ class ImportRepository:
             "staging": False,
             "fingerprint": dataset.fingerprint,
         }
+        await self.session.commit()
+
+    async def finalize_raster_layer(
+        self,
+        layer: Layer,
+        dataset: CatalogDataset,
+        asset_path: Path,
+        raster_metadata: dict[str, Any],
+        bounds: dict[str, float],
+    ) -> None:
+        candidates = await self.imported_layers(dataset.source_id)
+        for old_layer in candidates:
+            metadata = old_layer.performance or {}
+            if metadata.get("dataset_id") == dataset.id and old_layer.id != layer.id:
+                await self.session.delete(old_layer)
+        layer.data_path = str(asset_path)
+        layer.bounds = bounds
+        layer.crs = "EPSG:3857"
+        layer.geometry_type = "Raster"
+        layer.feature_count = 0
+        layer.visible = True
+        layer.locked = True
+        layer.performance = {
+            **dict(layer.performance or {}),
+            "staging": False,
+            "fingerprint": dataset.fingerprint,
+            "raster": raster_metadata,
+        }
+        await self.session.commit()
+
+    async def delete_staging_layer(self, layer: Layer) -> None:
+        await self.session.delete(layer)
         await self.session.commit()
 
     async def delete_staging_features(self, layer_id: int) -> None:

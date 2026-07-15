@@ -13,6 +13,7 @@ import { useWorkspaceStore } from './useWorkspaceStore';
 const layer: BackendLayerSummary = {
   id: 7,
   name: '宗地面',
+  kind: 'vector',
   geometry_type: 'Polygon',
   feature_count: 2,
   crs: 'EPSG:3857',
@@ -38,6 +39,7 @@ const layer: BackendLayerSummary = {
     layer_name: '宗地面',
     fingerprint: 'fingerprint-a',
   },
+  raster: null,
 };
 
 const summary: WorkspaceSummary = {

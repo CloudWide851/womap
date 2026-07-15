@@ -3,7 +3,12 @@ from pathlib import Path, PureWindowsPath
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.layers.schemas import LayerPerformanceState, LayerProvenance, LayerSummary
+from app.features.layers.schemas import (
+    LayerPerformanceState,
+    LayerProvenance,
+    LayerSummary,
+    RasterLayerMetadata,
+)
 from app.features.projects.repository import ProjectRepository
 from app.models.layer import Layer
 
@@ -77,6 +82,9 @@ class LayerRepository:
     @staticmethod
     def to_summary(layer: Layer, metadata: dict | None = None) -> LayerSummary:
         raw_metadata = metadata or layer.performance or {}
+        kind = "raster" if layer.geometry_type == "Raster" else "vector"
+        raster_metadata = raw_metadata.get("raster") if kind == "raster" else None
+        fingerprint = str(raw_metadata.get("fingerprint") or "")
         source_format = layer.source_type or "unknown"
         container = LayerRepository._safe_provenance_path(
             raw_metadata.get("container") or layer.data_path,
@@ -89,6 +97,7 @@ class LayerRepository:
         return LayerSummary(
             id=layer.id,
             name=layer.name,
+            kind=kind,
             geometry_type=layer.geometry_type,
             feature_count=layer.feature_count,
             crs=layer.crs,
@@ -108,6 +117,17 @@ class LayerRepository:
                 relative_path=relative_path,
                 layer_name=raw_metadata.get("layer_name") or layer.name,
                 fingerprint=raw_metadata.get("fingerprint"),
+            ),
+            raster=(
+                RasterLayerMetadata.model_validate(
+                    {
+                        **dict(raster_metadata or {}),
+                        "asset_url": f"/api/v1/rasters/{layer.id}/asset?v={fingerprint}",
+                        "fingerprint": fingerprint,
+                    }
+                )
+                if raster_metadata
+                else None
             ),
         )
 

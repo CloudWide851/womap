@@ -27,6 +27,10 @@ class ExportService:
         if not normalized_ids:
             raise ExportRequestError("请至少选择一个后端图层。")
 
+        raster_ids = await self.repository.raster_layer_ids(normalized_ids)
+        if raster_ids:
+            raise ExportRequestError("SHP/GDB 仅支持矢量图层；请从栅格导出入口导出 COG。")
+
         layers = await self.repository.list_layers_for_export(normalized_ids)
         if not layers:
             raise ExportNoDataError("没有找到可导出的后端图层或图斑。")

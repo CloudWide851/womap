@@ -135,11 +135,46 @@ export function ImportSourceSettings() {
           disabled={!settings}
           onClick={() =>
             settings &&
-            void updateImportOptions(settings.cache_path, settings.batch_size).then(setSettings)
+            void updateImportOptions(
+              settings.cache_path,
+              settings.batch_size,
+              settings.raster_store_path,
+              settings.raster_scratch_path,
+              settings.raster_quota_gb,
+            ).then(setSettings)
           }
         >
           保存
         </Button>
+      </div>
+
+      <div className="import-options-row raster-options-row">
+        <Input
+          value={settings?.raster_store_path ?? ''}
+          onChange={(event) =>
+            setSettings((current) => current && { ...current, raster_store_path: event.target.value })
+          }
+          placeholder="托管 COG 目录"
+          aria-label="托管栅格目录"
+        />
+        <Input
+          value={settings?.raster_scratch_path ?? ''}
+          onChange={(event) =>
+            setSettings((current) => current && { ...current, raster_scratch_path: event.target.value })
+          }
+          placeholder="栅格转换临时目录"
+          aria-label="栅格临时目录"
+        />
+        <InputNumber
+          min={1}
+          max={16384}
+          value={settings?.raster_quota_gb}
+          suffix="GB"
+          onChange={(value) =>
+            setSettings((current) => current && { ...current, raster_quota_gb: value ?? 200 })
+          }
+          aria-label="栅格存储配额 GB"
+        />
       </div>
 
       <div className="import-source-list">

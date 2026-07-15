@@ -89,12 +89,20 @@ class ImportSourceTestResponse(BaseModel):
 class ImportSettingsResponse(BaseModel):
     cache_path: str
     batch_size: int
+    raster_store_path: str
+    raster_scratch_path: str
+    raster_quota_gb: int
     sources: list[ImportSourceResponse]
 
 
 class ImportOptionsUpdate(BaseModel):
     cache_path: str = Field(min_length=1, max_length=500)
     batch_size: int = Field(ge=100, le=20000)
+    raster_store_path: str = Field(default=".womap-data/rasters", min_length=1, max_length=500)
+    raster_scratch_path: str = Field(
+        default=".womap-data/raster-scratch", min_length=1, max_length=500
+    )
+    raster_quota_gb: int = Field(default=200, ge=1, le=16384)
 
 
 class RuntimePerformanceSettings(BaseModel):

@@ -49,7 +49,11 @@ class SpatialAnalysisService:
             (state for state in workspace.layers if state.layer.id == payload.target_layer_id),
             None,
         )
-        if target_state is None or not target_state.config.visible:
+        if (
+            target_state is None
+            or not target_state.config.visible
+            or target_state.layer.kind == "raster"
+        ):
             raise ValueError("分析目标必须来自当前工作空间的可见图层。")
         target = await self.feature_service.get_feature_detail(
             payload.target_layer_id,
@@ -61,7 +65,8 @@ class SpatialAnalysisService:
         layer_states = [
             state
             for state in workspace.layers
-            if payload.scope == "all" or state.config.visible
+            if state.layer.kind == "vector"
+            and (payload.scope == "all" or state.config.visible)
         ]
         versions = await self.repository.layer_versions([state.layer.id for state in layer_states])
         layers = []

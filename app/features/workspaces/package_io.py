@@ -59,6 +59,29 @@ def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
 
 
+def _archive_member_sha256(archive: zipfile.ZipFile, member: str) -> str:
+    digest = hashlib.sha256()
+    with archive.open(member) as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _manifest_asset_members(manifest: WorkspacePackageManifest) -> set[str]:
+    members: set[str] = set()
+    for layer in manifest.layers:
+        member = layer.asset_member
+        if member is None:
+            continue
+        _safe_archive_name(member)
+        if layer.kind != "raster" or Path(member).suffix.lower() not in {".tif", ".tiff"}:
+            raise WorkspacePackageError("工作空间包栅格资产声明无效。")
+        if member in REQUIRED_MEMBERS or member in members:
+            raise WorkspacePackageError("工作空间包栅格资产名称重复。")
+        members.add(member)
+    return members
+
+
 def _safe_archive_name(name: str) -> None:
     if not name or "\\" in name or name.startswith(("/", "\\")):
         raise WorkspacePackageError("工作空间包包含非法路径。")
@@ -125,10 +148,9 @@ def validate_workspace_package(path: Path) -> ValidatedWorkspacePackage:
             raise WorkspacePackageError("工作空间包压缩体积超过 2 GiB。")
         if uncompressed_size > MAX_UNCOMPRESSED_BYTES:
             raise WorkspacePackageError("工作空间包解压体积超过 10 GiB。")
-        if names != REQUIRED_MEMBERS:
+        if not REQUIRED_MEMBERS.issubset(names):
             missing = sorted(REQUIRED_MEMBERS - names)
-            unexpected = sorted(names - REQUIRED_MEMBERS)
-            detail = "、".join([*(f"缺少 {name}" for name in missing), *(f"未知 {name}" for name in unexpected)])
+            detail = "、".join(f"缺少 {name}" for name in missing)
             raise WorkspacePackageError(f"工作空间包结构不完整：{detail}。")
         free_bytes = shutil.disk_usage(path.parent).free
         if free_bytes < uncompressed_size + 128 * 1024**2:
@@ -139,13 +161,27 @@ def validate_workspace_package(path: Path) -> ValidatedWorkspacePackage:
             manifest = WorkspacePackageManifest.model_validate_json(manifest_raw)
         except (KeyError, UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
             raise WorkspacePackageError("工作空间包清单或校验文件无效。") from exc
+        expected_members = REQUIRED_MEMBERS | _manifest_asset_members(manifest)
+        if names != expected_members:
+            unexpected = sorted(names - expected_members)
+            missing = sorted(expected_members - names)
+            detail = "、".join(
+                [
+                    *(f"缺少 {name}" for name in missing),
+                    *(f"未知 {name}" for name in unexpected),
+                ]
+            )
+            raise WorkspacePackageError(f"工作空间包结构不完整：{detail}。")
         if not isinstance(checksums, dict):
             raise WorkspacePackageError("工作空间包校验文件格式无效。")
-        for member in ("manifest.json", "data.gpkg", "README.txt"):
+        checksum_members = expected_members - {"checksums.json"}
+        if set(checksums) != checksum_members:
+            raise WorkspacePackageError("工作空间包校验文件与实际条目不一致。")
+        for member in sorted(checksum_members):
             expected = checksums.get(member)
             if not isinstance(expected, str) or len(expected) != 64:
                 raise WorkspacePackageError(f"工作空间包缺少 {member} 的 SHA-256 校验值。")
-            actual = hashlib.sha256(archive.read(member)).hexdigest()
+            actual = _archive_member_sha256(archive, member)
             if not hmac.compare_digest(actual, expected.lower()):
                 raise WorkspacePackageError(f"工作空间包 {member} 校验失败。")
         _assert_no_sensitive_manifest_data(manifest)
@@ -163,12 +199,31 @@ def extract_geopackage(package: ValidatedWorkspacePackage, target_dir: Path) -> 
     return target
 
 
+def extract_raster_assets(
+    package: ValidatedWorkspacePackage, target_dir: Path
+) -> dict[str, Path]:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    assets: dict[str, Path] = {}
+    with zipfile.ZipFile(package.path) as archive:
+        for layer in package.manifest.layers:
+            if layer.asset_member is None:
+                continue
+            target = (target_dir / layer.asset_member).resolve()
+            if target.parent != target_dir.resolve():
+                raise WorkspacePackageError("工作空间包栅格解压路径无效。")
+            with archive.open(layer.asset_member) as source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination, length=1024 * 1024)
+            assets[layer.package_layer] = target
+    return assets
+
+
 def build_workspace_package(
     *,
     output_dir: Path,
     workspace: WorkspaceDetail,
     basemap: WorkspaceBasemapReference,
     layer_features: dict[int, list[dict[str, Any]]],
+    raster_assets: dict[int, Path] | None = None,
 ) -> WorkspacePackageArchive:
     output_dir.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix="womap-package-", dir=output_dir))
@@ -176,6 +231,7 @@ def build_workspace_package(
     manifest_layers: list[WorkspacePackageLayerManifest] = []
     used_layer_names: set[str] = set()
     wrote_layer = False
+    raster_assets = raster_assets or {}
     try:
         for state in workspace.layers:
             features = layer_features.get(state.layer.id, [])
@@ -196,6 +252,13 @@ def build_workspace_package(
                 )
                 wrote_layer = True
             provenance = state.layer.provenance
+            raster_asset = raster_assets.get(state.layer.id)
+            asset_member = None
+            if state.layer.kind == "raster" and raster_asset is not None:
+                if not raster_asset.is_file():
+                    raise WorkspacePackageError(f"栅格图层 {state.layer.name} 的资产不存在。")
+                asset_member = f"raster-{state.layer.id}.tif"
+                shutil.copyfile(raster_asset, temporary / asset_member)
             manifest_layers.append(
                 WorkspacePackageLayerManifest(
                     package_layer=package_layer,
@@ -212,6 +275,15 @@ def build_workspace_package(
                     container=Path(provenance.container).name if provenance.container else None,
                     fingerprint=provenance.fingerprint,
                     config=state.config,
+                    kind=state.layer.kind,
+                    raster=(
+                        state.layer.raster.model_dump(
+                            mode="json", exclude={"asset_url"}
+                        )
+                        if state.layer.raster
+                        else None
+                    ),
+                    asset_member=asset_member,
                 )
             )
         if not wrote_layer:
@@ -231,13 +303,14 @@ def build_workspace_package(
         manifest_path.write_bytes(_json_bytes(manifest.model_dump(mode="json")))
         readme_path.write_text(
             "WOMAP 可移植工作空间包\n"
-            "包含工作空间选中的矢量图层和图斑；不包含在线底图瓦片、凭据或本地路径。\n",
+            "包含工作空间选中的矢量图层和图斑，可选内嵌托管 COG；"
+            "不包含在线底图瓦片、凭据或本地路径。\n",
             encoding="utf-8",
         )
+        archive_members = REQUIRED_MEMBERS | _manifest_asset_members(manifest)
         checksums = {
-            "manifest.json": _sha256(manifest_path),
-            "data.gpkg": _sha256(gpkg_path),
-            "README.txt": _sha256(readme_path),
+            member: _sha256(temporary / member)
+            for member in archive_members - {"checksums.json"}
         }
         (temporary / "checksums.json").write_bytes(_json_bytes(checksums))
         safe_name = re.sub(r"[^0-9A-Za-z_-]+", "-", workspace.name).strip("-") or "workspace"
@@ -248,8 +321,15 @@ def build_workspace_package(
             counter += 1
             destination = output_dir / f"{safe_name[:54]}-{counter}.womap.zip"
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for member in sorted(REQUIRED_MEMBERS):
-                archive.write(temporary / member, arcname=member)
+            for member in sorted(archive_members):
+                archive.write(
+                    temporary / member,
+                    arcname=member,
+                    compress_type=(
+                        zipfile.ZIP_STORED if member.lower().endswith((".tif", ".tiff"))
+                        else zipfile.ZIP_DEFLATED
+                    ),
+                )
         validate_workspace_package(destination)
         return WorkspacePackageArchive(path=destination, filename=destination.name, manifest=manifest)
     finally:

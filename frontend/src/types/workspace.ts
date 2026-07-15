@@ -1,4 +1,6 @@
-export type GeometryType = 'Point' | 'LineString' | 'Polygon' | 'Mixed';
+import type { RasterLayerMetadata, RasterStyle } from './imports';
+
+export type GeometryType = 'Point' | 'LineString' | 'Polygon' | 'Mixed' | 'Raster';
 export type BasemapType = 'xyz' | 'wms';
 export type AppPageMode = 'workspace' | 'settings';
 export type AttributeInspectorKind = 'layer' | 'feature';
@@ -28,6 +30,9 @@ export interface WorkspaceLayer {
   performance: LayerPerformanceState;
   source?: 'demo' | 'backend';
   bounds?: Record<string, number>;
+  kind?: 'vector' | 'raster';
+  raster?: RasterLayerMetadata | null;
+  rasterStyle?: RasterStyle;
 }
 
 export interface WorkspaceField {
@@ -73,7 +78,7 @@ export interface LayerPerformanceState {
   featureCount: number;
   largeLayer: boolean;
   indexed: boolean;
-  recommendedMode: 'bbox' | 'tile' | 'table';
+  recommendedMode: 'bbox' | 'tile' | 'table' | 'cog-range';
   warning?: string;
 }
 

@@ -15,6 +15,9 @@ from app.features.imports.schemas import CatalogDataset, ImportCatalog, ImportRe
 from app.features.imports.sources import SourceMaterializer, TransferProgress
 from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobProgressDetail, JobStatus
+from app.features.jobs.schemas import RasterJobProgressDetail
+from app.features.rasters.processor import RasterProcessor
+from app.features.rasters.storage import RasterStorage
 from app.features.settings.schemas import ImportSourceResponse
 from app.features.settings.service import SettingsService
 from app.models.job import Job
@@ -76,7 +79,11 @@ class ImportService:
         source_id = str((job.payload or {}).get("source_id", ""))
         if await self.repository.has_active_job(source_id):
             raise RuntimeError("该数据源已有任务正在执行。")
-        detail = JobProgressDetail.model_validate((job.result or {}).get("detail") or {})
+        raw_detail = (job.result or {}).get("detail") or {}
+        detail = JobProgressDetail(
+            source_id=source_id,
+            stage="queued",
+        ) if raw_detail.get("kind") == "raster-process" else JobProgressDetail.model_validate(raw_detail)
         detail.stage = "queued"
         detail.error = None
         await self.repository.update_job(
@@ -118,7 +125,12 @@ class ImportService:
                 await self._run_import(job)
         except asyncio.CancelledError:
             await self.repository.rollback()
-            detail = JobProgressDetail.model_validate((job.result or {}).get("detail") or {})
+            raw_detail = (job.result or {}).get("detail") or {}
+            detail = (
+                RasterJobProgressDetail.model_validate(raw_detail)
+                if raw_detail.get("kind") == "raster-process"
+                else JobProgressDetail.model_validate(raw_detail)
+            )
             detail.stage = "interrupted"
             await self.repository.update_job(
                 job,
@@ -129,7 +141,12 @@ class ImportService:
             raise
         except Exception as exc:
             await self.repository.rollback()
-            detail = JobProgressDetail.model_validate((job.result or {}).get("detail") or {})
+            raw_detail = (job.result or {}).get("detail") or {}
+            detail = (
+                RasterJobProgressDetail.model_validate(raw_detail)
+                if raw_detail.get("kind") == "raster-process"
+                else JobProgressDetail.model_validate(raw_detail)
+            )
             detail.stage = "failed"
             detail.error = str(exc)
             await self.repository.update_job(
@@ -171,7 +188,7 @@ class ImportService:
 
         detail.stage = "scanning"
         await self.repository.update_job(
-            job, progress=40, message="正在识别 SHP 和 GDB 图层。", detail=detail
+            job, progress=40, message="正在识别矢量与栅格数据集。", detail=detail
         )
         catalog = await asyncio.to_thread(self.scanner.scan, source_id, root)
         self._save_catalog(catalog)
@@ -192,7 +209,7 @@ class ImportService:
         import_settings = await self.settings_service.get_import_settings()
         cache_root = self._resolve_local_path(import_settings.cache_path)
         root = await asyncio.to_thread(self.materializer.materialize, source, cache_root, None)
-        catalog = self._load_catalog(source_id)
+        catalog = await asyncio.to_thread(self.scanner.scan, source_id, root)
         selected_ids = list(job.payload.get("dataset_ids", []))
         selected = [dataset for dataset in catalog.datasets if dataset.id in selected_ids]
         overrides = dict(job.payload.get("crs_overrides", {}))
@@ -212,6 +229,17 @@ class ImportService:
             source_crs = dataset.crs or overrides.get(dataset.id)
             if not source_crs:
                 raise ValueError(f"{dataset.layer_name} 缺少坐标系。")
+            if dataset.dataset_kind == "raster":
+                await self._run_raster_import(
+                    job=job,
+                    dataset=dataset,
+                    source_path=path,
+                    source_crs=source_crs,
+                    import_settings=import_settings,
+                    staging_layers=staging_layers,
+                    completed=completed,
+                )
+                continue
             layer_id = staging_layers.get(dataset.id)
             layer = await self.repository.get_layer(int(layer_id)) if layer_id else None
             if layer is None:
@@ -302,6 +330,108 @@ class ImportService:
             ),
             extra_result={
                 "offsets": offsets,
+                "staging_layers": staging_layers,
+                "completed_dataset_ids": list(completed),
+            },
+        )
+
+    async def _run_raster_import(
+        self,
+        *,
+        job: Job,
+        dataset: CatalogDataset,
+        source_path: Path,
+        source_crs: str,
+        import_settings,
+        staging_layers: dict,
+        completed: set,
+    ) -> None:
+        if dataset.raster is None:
+            raise ValueError(f"{dataset.layer_name} 缺少可用栅格元数据。")
+        storage = RasterStorage(
+            import_settings.raster_store_path,
+            import_settings.raster_scratch_path,
+            import_settings.raster_quota_gb,
+        )
+        processor = RasterProcessor(storage)
+        layer_id = staging_layers.get(dataset.id)
+        layer = await self.repository.get_layer(int(layer_id)) if layer_id else None
+        if layer is None:
+            layer = await self.repository.create_staging_layer(dataset, job.id)
+            staging_layers[dataset.id] = layer.id
+        source_uri = dataset.raster.source_uri or str(source_path)
+        progress_state = {"stage": "converting", "current": 0, "total": dataset.raster.byte_size}
+
+        def progress(stage: str, current: int, total: int) -> None:
+            progress_state.update(stage=stage, current=current, total=total)
+
+        detail = RasterJobProgressDetail(
+            stage="converting",
+            operation="import",
+            source_id=dataset.source_id,
+            dataset_id=dataset.id,
+            dataset_name=dataset.layer_name,
+            layer_id=layer.id,
+            total_bytes=dataset.raster.byte_size,
+        )
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                processor.to_cog,
+                source_uri,
+                dataset_id=dataset.id,
+                fingerprint=dataset.fingerprint,
+                source_crs=source_crs,
+                progress=progress,
+            )
+        )
+        try:
+            while not task.done():
+                detail.stage = str(progress_state["stage"])
+                detail.processed_bytes = int(progress_state["current"])
+                detail.total_bytes = int(progress_state["total"])
+                await self.repository.update_job(
+                    job,
+                    status="running",
+                    progress=min(
+                        95,
+                        int(detail.processed_bytes / max(1, detail.total_bytes) * 90) + 5,
+                    ),
+                    message=f"正在转换栅格 {dataset.layer_name}",
+                    detail=detail,
+                    extra_result={
+                        "staging_layers": staging_layers,
+                        "completed_dataset_ids": list(completed),
+                    },
+                )
+                await asyncio.sleep(0.25)
+            asset_path, raster_metadata, bounds = await task
+            detail.stage = "validating"
+            await self.repository.finalize_raster_layer(
+                layer,
+                dataset,
+                asset_path,
+                raster_metadata,
+                bounds,
+            )
+        except Exception:
+            if not task.done():
+                task.cancel()
+            await self.repository.rollback()
+            try:
+                await self.repository.delete_staging_layer(layer)
+            except Exception:
+                await self.repository.rollback()
+            raise
+        completed.add(dataset.id)
+        detail.stage = "completed"
+        detail.processed_bytes = detail.total_bytes
+        await self.repository.update_job(
+            job,
+            status="running",
+            progress=99,
+            message=f"已完成栅格 {dataset.layer_name}",
+            detail=detail,
+            extra_result={
                 "staging_layers": staging_layers,
                 "completed_dataset_ids": list(completed),
             },

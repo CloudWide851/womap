@@ -34,6 +34,7 @@ class MapFeatureService:
         simplify: float | None,
         workspace_id: int | None = None,
     ) -> FeatureCollectionResponse:
+        await self._ensure_vector_layer(layer_id)
         effective_limit = self.settings.performance.clamp_feature_limit(limit)
         effective_simplify = simplify
         if effective_simplify is None:
@@ -77,6 +78,7 @@ class MapFeatureService:
         cursor: str | None,
         workspace_id: int | None,
     ) -> MapFeatureSummaryPage:
+        await self._ensure_vector_layer(layer_id)
         workspace_filter = await self._workspace_filter(workspace_id, layer_id)
         items, next_cursor, has_more = await self.repository.list_feature_summaries(
             layer_id=layer_id,
@@ -97,6 +99,7 @@ class MapFeatureService:
         feature_id: int,
         workspace_id: int | None,
     ) -> MapFeatureDetail:
+        await self._ensure_vector_layer(layer_id)
         workspace_filter = await self._workspace_filter(workspace_id, layer_id)
         detail = await self.repository.get_feature_detail(
             layer_id=layer_id,
@@ -149,6 +152,15 @@ class MapFeatureService:
         if geometry.is_empty or geometry.area <= 0:
             raise ValueError("Polygon 不能为空或面积为零。")
         return geometry
+
+    async def _ensure_vector_layer(self, layer_id: int) -> None:
+        if getattr(self.repository, "session", None) is None:
+            return
+        layer = await self.repository.get_layer(layer_id)
+        if layer is None:
+            raise KeyError(layer_id)
+        if layer.geometry_type == "Raster":
+            raise ValueError("栅格图层不提供矢量图斑接口，请使用栅格查询工具。")
 
     async def _workspace_filter(
         self,
