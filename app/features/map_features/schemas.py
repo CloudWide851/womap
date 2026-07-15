@@ -22,12 +22,17 @@ class MapFeatureCreate(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
+class MapFeatureUpdate(MapFeatureCreate):
+    revision: int = Field(ge=1)
+
+
 class MapFeatureItem(BaseModel):
     id: int
     layer_id: int | None = None
     source_feature_id: str | None = None
     geometry: FeatureGeometry | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
+    revision: int = 1
 
 
 class MapFeatureDetail(MapFeatureItem):
@@ -61,4 +66,9 @@ class FeatureCollectionResponse(BaseModel):
 
 class MapFeatureCreateResponse(BaseModel):
     feature: MapFeatureItem
+    layer: LayerSummary
+
+
+class MapFeatureDeleteResponse(BaseModel):
+    deleted_feature_id: int
     layer: LayerSummary

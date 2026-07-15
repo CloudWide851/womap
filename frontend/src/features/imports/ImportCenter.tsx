@@ -177,8 +177,16 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
       upsertJob(await resumeImportJob(jobId));
     });
 
-  const renderDatasets = (datasets: CatalogDataset[]) => {
-    if (datasets.length === 0) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />;
+  const renderDatasets = (datasets: CatalogDataset[], emptyDescription: string) => {
+    if (datasets.length === 0) {
+      return (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription}>
+          <Button size="small" icon={<RefreshCw size={14} />} onClick={() => sourceId && void loadCatalog(sourceId)}>
+            重新扫描
+          </Button>
+        </Empty>
+      );
+    }
     let lastContainer = '';
     return (
       <div className="import-dataset-list">
@@ -331,7 +339,12 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
         </Button>
       </div>
 
-      {error && <div className="import-error" role="alert">{error}</div>}
+      {error && (
+        <div className="import-error" role="alert">
+          <span>{error}</span>
+          <Button size="small" onClick={onOpenSettings}>检查数据源</Button>
+        </div>
+      )}
 
       {activeJob && (
         <section className="import-progress-panel" aria-label="导入任务进度">
@@ -372,12 +385,35 @@ export function ImportCenter({ open, onClose, onOpenSettings }: ImportCenterProp
         </section>
       )}
 
-      <Tabs
-        items={[
-          { key: 'pending', label: `未导入 ${pending.length}`, children: renderDatasets(pending) },
-          { key: 'imported', label: `已导入 ${imported.length}`, children: renderDatasets(imported) },
-        ]}
-      />
+      {settings && settings.sources.length === 0 ? (
+        <section className="import-empty-guide" aria-label="导入准备">
+          <FolderSync size={24} aria-hidden="true" />
+          <div>
+            <strong>先添加一个数据源</strong>
+            <span>支持本地目录和 SMB，共享凭据只保存在 Windows Credential Manager。</span>
+          </div>
+          <Button type="primary" icon={<Settings size={15} />} onClick={onOpenSettings}>
+            添加数据源
+          </Button>
+        </section>
+      ) : sourceId && !catalog && !error ? (
+        <div className="import-catalog-loading" role="status">正在读取目录清单…</div>
+      ) : (
+        <Tabs
+          items={[
+            {
+              key: 'pending',
+              label: `未导入 ${pending.length}`,
+              children: renderDatasets(pending, '没有待导入数据，可重新扫描目录'),
+            },
+            {
+              key: 'imported',
+              label: `已导入 ${imported.length}`,
+              children: renderDatasets(imported, '尚未导入数据'),
+            },
+          ]}
+        />
+      )}
 
       <div className="import-center-actions">
         <Button onClick={() => sourceId && void loadCatalog(sourceId)} icon={<RefreshCw size={15} />}>

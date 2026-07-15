@@ -9,11 +9,13 @@ import { JobPanel } from '../features/jobs/JobPanel';
 import { LayerPanel } from '../features/layers/LayerPanel';
 import { MapCanvas } from '../features/map/MapCanvas';
 import { FeatureNavigator } from '../features/map/FeatureNavigator';
+import { GettingStartedPanel } from '../features/onboarding/GettingStartedPanel';
 import { PropertiesPanel } from '../features/properties/PropertiesPanel';
 import { useMapStore } from '../stores/useMapStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { useWorkspaceContextStore } from '../stores/useWorkspaceContextStore';
+import { resolveWorkbenchShortcut } from './workbenchShortcuts';
 
 const SpatialAnalysisDrawer = lazy(() =>
   import('../features/spatial-analysis/SpatialAnalysisDrawer').then((module) => ({
@@ -38,6 +40,9 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
   const switchWorkspace = useWorkspaceContextStore((state) => state.switchWorkspace);
   const syncRuntimeLayer = useWorkspaceContextStore((state) => state.syncRuntimeLayer);
   const markDirty = useWorkspaceContextStore((state) => state.markDirty);
+  const saveCurrent = useWorkspaceContextStore((state) => state.saveCurrent);
+  const undoEdit = useWorkspaceStore((state) => state.undoEdit);
+  const redoEdit = useWorkspaceStore((state) => state.redoEdit);
   const [activeDock, setActiveDock] = useState<'layers' | 'jobs'>('layers');
   const [dockOpen, setDockOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
@@ -51,6 +56,27 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
     query.addEventListener('change', handleChange);
     return () => query.removeEventListener('change', handleChange);
   }, []);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const shortcut = resolveWorkbenchShortcut(event);
+      if (!shortcut) return;
+      if (shortcut === 'save') {
+        event.preventDefault();
+        if (useWorkspaceContextStore.getState().dirty) {
+          void saveCurrent().catch(() => undefined);
+        }
+      } else if (shortcut === 'undo') {
+        event.preventDefault();
+        void undoEdit();
+      } else {
+        event.preventDefault();
+        void redoEdit();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [redoEdit, saveCurrent, undoEdit]);
 
   useEffect(() => {
     void initializeWorkspaces();
@@ -148,6 +174,9 @@ export function WorkbenchLayout({ onOpenSettings }: WorkbenchLayoutProps) {
                 <span>{activeDock === 'layers' ? '资源' : '任务'}</span>
                 <small>{activeDock === 'layers' ? '图层与定位序列' : '处理队列与导出'}</small>
               </header>
+              {activeDock === 'layers' && panels.layers && (
+                <GettingStartedPanel onOpenSettings={() => onOpenSettings('import-sources')} />
+              )}
               {activeDock === 'layers' && panels.layers && <LayerPanel />}
               {activeDock === 'layers' && panels.layers && <FeatureNavigator />}
               {activeDock === 'jobs' && panels.jobs && <JobPanel />}

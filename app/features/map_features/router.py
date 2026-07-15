@@ -8,8 +8,10 @@ from app.features.map_features.schemas import (
     FeatureCollectionResponse,
     MapFeatureCreate,
     MapFeatureCreateResponse,
+    MapFeatureDeleteResponse,
     MapFeatureDetail,
     MapFeatureSummaryPage,
+    MapFeatureUpdate,
 )
 from app.features.map_features.service import MapFeatureService
 from app.features.workspaces.repository import WorkspaceRepository
@@ -110,5 +112,43 @@ async def create_layer_feature(
         raise HTTPException(status_code=404, detail="目标图层不存在。") from exc
     except ValueError as exc:
         raise bad_request(str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.put(
+    "/layers/{layer_id}/features/{feature_id}",
+    response_model=MapFeatureCreateResponse,
+)
+async def update_layer_feature(
+    layer_id: int,
+    feature_id: int,
+    payload: MapFeatureUpdate,
+    service: MapFeatureService = Depends(get_map_feature_service),
+) -> MapFeatureCreateResponse:
+    try:
+        return await service.update_polygon_feature(layer_id, feature_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="目标图层或图斑不存在。") from exc
+    except ValueError as exc:
+        raise bad_request(str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/layers/{layer_id}/features/{feature_id}",
+    response_model=MapFeatureDeleteResponse,
+)
+async def delete_layer_feature(
+    layer_id: int,
+    feature_id: int,
+    revision: int = Query(..., ge=1),
+    service: MapFeatureService = Depends(get_map_feature_service),
+) -> MapFeatureDeleteResponse:
+    try:
+        return await service.delete_polygon_feature(layer_id, feature_id, revision)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="目标图层或图斑不存在。") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

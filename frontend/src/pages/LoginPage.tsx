@@ -8,6 +8,8 @@ import type { SessionMode } from '../types/workspace';
 export function LoginPage() {
   const policy = useAuthStore((state) => state.policy);
   const error = useAuthStore((state) => state.error);
+  const serviceStatus = useAuthStore((state) => state.serviceStatus);
+  const submitting = useAuthStore((state) => state.submitting);
   const login = useAuthStore((state) => state.login);
   const [username, setUsername] = useState(policy.username);
   const [password, setPassword] = useState('');
@@ -16,12 +18,22 @@ export function LoginPage() {
   const passwordScore = useMemo(() => {
     return Math.min(100, Math.round((password.length / policy.passwordMinLength) * 100));
   }, [password.length, policy.passwordMinLength]);
-  const canLogin = username.trim().length > 0 && password.length >= policy.passwordMinLength;
-  const submitLabel = canLogin ? '进入工作台' : `输入至少 ${policy.passwordMinLength} 位密码`;
+  const canLogin =
+    serviceStatus === 'ready' &&
+    !submitting &&
+    username.trim().length > 0 &&
+    password.length >= policy.passwordMinLength;
+  const submitLabel = submitting
+    ? '正在验证…'
+    : serviceStatus === 'unavailable'
+      ? '本地服务未连接'
+      : canLogin
+        ? '进入工作台'
+        : `输入至少 ${policy.passwordMinLength} 位密码`;
 
   const submitLogin = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    login({ username, password, mode });
+    void login({ username, password, mode });
   };
 
   return (
@@ -48,6 +60,7 @@ export function LoginPage() {
               value={username}
               autoComplete="username"
               onChange={(event) => setUsername(event.target.value)}
+              disabled={submitting}
             />
             <em>默认账号 local-admin</em>
           </label>
@@ -63,6 +76,7 @@ export function LoginPage() {
               minLength={policy.passwordMinLength}
               maxLength={policy.passwordMaxLength}
               onChange={(event) => setPassword(event.target.value)}
+              disabled={submitting}
             />
             <em>密码不少于 {policy.passwordMinLength} 位即可进入本地工作台</em>
           </label>
@@ -94,7 +108,13 @@ export function LoginPage() {
             </button>
           </div>
 
-          <button className="login-submit" type="submit" disabled={!canLogin} aria-label="登录工作台">
+          <button
+            className="login-submit"
+            type="submit"
+            disabled={!canLogin}
+            aria-label="登录工作台"
+            aria-busy={submitting}
+          >
             <LockKeyhole size={17} aria-hidden="true" />
             <span>{submitLabel}</span>
           </button>

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -23,12 +23,20 @@ afterEach(() => {
   cleanup();
 });
 
+beforeEach(() => {
+  useAuthStore.setState({ initialized: true, serviceStatus: 'ready' });
+});
+
 async function loginToWorkbench() {
-  const passwordInput = await screen.findByLabelText('登录密码');
-  fireEvent.change(passwordInput, {
-    target: { value: 'local-passphrase-2026' },
+  const now = Date.now();
+  useAuthStore.setState({
+    authenticated: true,
+    username: 'local-admin',
+    mode: 'short',
+    expiresAt: now + 30 * 60 * 1000,
+    renewalAt: now + 15 * 60 * 1000,
+    now,
   });
-  fireEvent.click(screen.getByLabelText('登录工作台'));
   await screen.findByTestId('brand-logo');
 }
 

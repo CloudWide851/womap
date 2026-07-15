@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import URL
 
 
@@ -186,6 +186,12 @@ class SessionSecuritySettings(BaseModel):
     secure_cookie: bool = True
     http_only_cookie: bool = True
     same_site: Literal["lax", "strict", "none"] = "lax"
+
+    @model_validator(mode="after")
+    def require_secure_cookie_for_same_site_none(self) -> "SessionSecuritySettings":
+        if self.same_site == "none" and not self.secure_cookie:
+            raise ValueError("SameSite=None requires a secure session cookie")
+        return self
 
 
 class AuthThrottleSettings(BaseModel):

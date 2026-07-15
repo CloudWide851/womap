@@ -11,6 +11,7 @@ from app.features.spatial_analyses.schemas import (
     SpatialAnalysisResult,
 )
 from app.main import create_app
+from conftest import allow_test_auth
 
 
 def analysis_job(status: str = "queued") -> JobStatus:
@@ -70,7 +71,7 @@ class FakeSpatialAnalysisService:
 
 
 def analysis_client(service, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    app = create_app()
+    app = allow_test_auth(create_app())
     app.dependency_overrides[get_spatial_analysis_service] = lambda: service
 
     async def no_background_job(_: str) -> None:

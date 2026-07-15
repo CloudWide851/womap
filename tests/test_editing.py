@@ -13,12 +13,15 @@ from app.features.map_features.schemas import (
     FeatureGeometry,
     MapFeatureCreate,
     MapFeatureItem,
+    MapFeatureUpdate,
     PolygonGeometry,
 )
 from app.features.map_features.service import MapFeatureService
 from app.features.projects.repository import ProjectRepository
 from app.main import create_app
+from conftest import allow_test_auth
 from app.models.layer import Layer
+from app.models.map_feature import MapFeature
 from app.models.project import Project
 
 
@@ -208,6 +211,20 @@ class MemoryFeatureRepository(MapFeatureRepository):
     def __init__(self, layer: Layer | None) -> None:
         self.layer = layer
         self.created = 0
+        self.feature = (
+            MapFeature(
+                id=31,
+                layer_id=layer.id,
+                source_feature_id=None,
+                properties={"name": "existing parcel"},
+                bbox={},
+                area=100.0,
+                perimeter=40.0,
+                revision=1,
+            )
+            if layer
+            else None
+        )
 
     async def get_layer(self, layer_id: int) -> Layer | None:
         _ = layer_id
@@ -224,6 +241,34 @@ class MemoryFeatureRepository(MapFeatureRepository):
             ),
             LayerRepository.to_summary(layer),
         )
+
+    async def get_feature(self, layer_id: int, feature_id: int) -> MapFeature | None:
+        if self.feature and self.feature.layer_id == layer_id and self.feature.id == feature_id:
+            return self.feature
+        return None
+
+    async def update_polygon_feature(self, layer, feature, polygon, properties):
+        feature.properties = properties
+        feature.revision += 1
+        return (
+            MapFeatureItem(
+                id=feature.id,
+                layer_id=layer.id,
+                geometry=FeatureGeometry(
+                    type="Polygon",
+                    coordinates=[[list(point) for point in polygon.exterior.coords]],
+                ),
+                properties=properties,
+                revision=feature.revision,
+            ),
+            LayerRepository.to_summary(layer),
+        )
+
+    async def delete_polygon_feature(self, layer, feature):
+        _ = feature
+        layer.feature_count = max(0, layer.feature_count - 1)
+        self.feature = None
+        return LayerRepository.to_summary(layer)
 
 
 @pytest.mark.parametrize(
@@ -272,6 +317,30 @@ async def test_polygon_creation_rejects_incompatible_layer(layer: Layer, message
     assert repository.created == 0
 
 
+@pytest.mark.asyncio
+async def test_polygon_update_uses_optimistic_revision() -> None:
+    repository = MemoryFeatureRepository(make_layer(feature_count=1))
+    service = MapFeatureService(repository)
+    payload = MapFeatureUpdate(**polygon_payload().model_dump(), revision=1)
+
+    response = await service.update_polygon_feature(7, 31, payload)
+
+    assert response.feature.revision == 2
+    assert response.feature.properties == {"name": "new parcel"}
+    with pytest.raises(RuntimeError, match="其他操作更新"):
+        await service.update_polygon_feature(7, 31, payload)
+
+
+@pytest.mark.asyncio
+async def test_polygon_delete_updates_layer_summary() -> None:
+    repository = MemoryFeatureRepository(make_layer(feature_count=1))
+
+    response = await MapFeatureService(repository).delete_polygon_feature(7, 31, 1)
+
+    assert response.deleted_feature_id == 31
+    assert response.layer.feature_count == 0
+
+
 class FakeLayerService:
     async def create_layer(self, payload: LayerCreate) -> LayerSummary:
         return LayerRepository.to_summary(make_layer(id=44, name=payload.name or "新建图斑图层 1"))
@@ -281,7 +350,7 @@ class FakeLayerService:
 
 
 def api_client(layer: Layer | None) -> TestClient:
-    app = create_app()
+    app = allow_test_auth(create_app())
     app.dependency_overrides[get_layer_service] = lambda: FakeLayerService()
     app.dependency_overrides[get_map_feature_service] = lambda: MapFeatureService(
         MemoryFeatureRepository(layer)
@@ -319,3 +388,16 @@ def test_polygon_feature_api_status_codes(layer, coordinates, status_code) -> No
     if status_code == 201:
         assert response.json()["layer"]["feature_count"] == 1
         assert response.json()["feature"]["id"] == 31
+
+
+def test_polygon_feature_update_and_delete_api() -> None:
+    client = api_client(make_layer(feature_count=1))
+    payload = MapFeatureUpdate(**polygon_payload().model_dump(), revision=1).model_dump()
+
+    updated = client.put("/api/v1/layers/7/features/31", json=payload)
+    deleted = client.delete("/api/v1/layers/7/features/31?revision=1")
+
+    assert updated.status_code == 200
+    assert updated.json()["feature"]["revision"] == 2
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_feature_id"] == 31

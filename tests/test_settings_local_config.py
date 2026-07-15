@@ -57,8 +57,8 @@ auth:
     result = await service.update_local_runtime_settings(build_update())
 
     written = yaml.safe_load(local_path.read_text(encoding="utf-8"))
-    assert result.config_source == str(local_path)
-    assert result.local_config_path == str(local_path)
+    assert result.config_source == "local"
+    assert result.local_config_path == "config/settings.local.yaml"
     assert result.server.host == "127.0.0.2"
     assert result.frontend.dev_server.port == 5273
     assert written["server"] == {"host": "127.0.0.2", "port": 8100}
@@ -89,9 +89,14 @@ redis:
     )
     service = SettingsService(local_config_path=local_path, fallback_config_path=example_path)
 
-    await service.update_local_runtime_settings(build_update(api_port=8200, web_port=9273))
+    before = await service.get_local_runtime_settings()
+    assert before.config_source == "example"
+    assert before.local_config_path == "config/settings.local.yaml"
+
+    updated = await service.update_local_runtime_settings(build_update(api_port=8200, web_port=9273))
 
     written = yaml.safe_load(local_path.read_text(encoding="utf-8"))
+    assert updated.config_source == "local"
     assert written["server"]["port"] == 8200
     assert written["frontend"]["dev_server"]["port"] == 9273
     assert written["redis"]["password"] is None

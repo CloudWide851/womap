@@ -5,6 +5,7 @@ description = "通用地图数据查看与图斑轻量编辑工具后端服务"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.16.0",
     "aiosqlite>=0.21.0",
     "asyncpg>=0.30.0",
     "fastapi>=0.116.0",

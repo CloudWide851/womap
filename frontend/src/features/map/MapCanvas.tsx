@@ -11,8 +11,11 @@ import Polygon from 'ol/geom/Polygon';
 import Geometry from 'ol/geom/Geometry';
 import { fromExtent as polygonFromExtent } from 'ol/geom/Polygon';
 import Draw from 'ol/interaction/Draw';
+import Modify from 'ol/interaction/Modify';
 import SelectInteraction from 'ol/interaction/Select';
+import Snap from 'ol/interaction/Snap';
 import type { DrawEvent } from 'ol/interaction/Draw';
+import type { ModifyEvent } from 'ol/interaction/Modify';
 import Map from 'ol/Map';
 import MapBrowserEvent from 'ol/MapBrowserEvent';
 import View from 'ol/View';
@@ -35,9 +38,12 @@ import GeoTIFFSource from 'ol/source/GeoTIFF';
 import {
   createLayerFeature,
   createManualLayer,
+  deleteLayerFeature,
   getLayerFeatures,
   getRasterPixel,
   resolveApiUrl,
+  updateLayerFeature,
+  type MapFeatureMutationResponse,
 } from '../../services/api';
 import { useMapStore } from '../../stores/useMapStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -48,13 +54,21 @@ import type { RasterFormulaNode, RasterStyle } from '../../types/imports';
 import type { BasemapProvider, FeatureAttributePreview, WorkspaceLayer } from '../../types/workspace';
 import { normalizeBackendLayer } from '../layers/backendLayer';
 import { supportsRasterWebGLPreview } from '../rasters/formulaParser';
+import {
+  resolveCurrentBackendFeature,
+  type BackendFeature,
+} from './backendFeatureEditing';
 import { MapToolbox } from './MapToolbox';
 import { MapSwipeDivider } from './MapSwipeDivider';
-import { createFirstVertexInteraction, resolveDrawingTarget } from './polygonEditing';
+import {
+  createFirstVertexInteraction,
+  resolveDrawingTarget,
+  SNAP_PIXEL_TOLERANCE,
+  snapEligibleLayers,
+} from './polygonEditing';
 
 type BasemapSource = OSM | XYZ;
 type MapFeatureGeometry = Point | Polygon;
-type BackendFeature = Feature<Geometry>;
 
 interface BackendLayerFocusDetail {
   name: string;
@@ -253,6 +267,35 @@ function createOverlayFeature(feature: FeatureAttributePreview) {
   return overlayFeature;
 }
 
+function backendFeatureId(feature: BackendFeature) {
+  const parts = String(feature.getId() ?? '').split(':');
+  const featureId = Number(parts.at(-1));
+  const layerId = parts.at(-2) ?? '';
+  return Number.isInteger(featureId) && layerId ? { layerId, featureId } : null;
+}
+
+function mutationFeature(
+  layerId: string,
+  geometryType: string,
+  response: MapFeatureMutationResponse,
+) {
+  const feature = new GeoJSON().readFeature(
+    {
+      type: 'Feature',
+      id: response.feature.id,
+      geometry: response.feature.geometry,
+      properties: response.feature.properties,
+    },
+    { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
+  ) as BackendFeature;
+  feature.set('layerId', layerId);
+  feature.set('geometryType', geometryType);
+  feature.set('womapProperties', response.feature.properties);
+  feature.set('womapRevision', response.feature.revision);
+  feature.setId(`backend:${layerId}:${response.feature.id}`);
+  return feature;
+}
+
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace('#', '');
   const full =
@@ -329,6 +372,9 @@ export function MapCanvas() {
   const backendAbortRef = useRef<AbortController | null>(null);
   const truncatedLayerIdsRef = useRef(new Set<string>());
   const drawInteractionRef = useRef<Draw | null>(null);
+  const editSelectInteractionRef = useRef<SelectInteraction | null>(null);
+  const modifyInteractionRef = useRef<Modify | null>(null);
+  const snapInteractionsRef = useRef<Snap[]>([]);
   const workspacePickInteractionRef = useRef<SelectInteraction | null>(null);
   const analysisSelectInteractionRef = useRef<SelectInteraction | null>(null);
   const drawingStartedRef = useRef(false);
@@ -350,6 +396,7 @@ export function MapCanvas() {
   const activeTool = useWorkspaceStore((state) => state.activeTool);
   const toolActivationSequence = useWorkspaceStore((state) => state.toolActivationSequence);
   const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
+  const snapEnabled = useWorkspaceStore((state) => state.snapEnabled);
   const selectedFeatureId = useWorkspaceStore((state) => state.selectedFeatureId);
   const featureFocusRequest = useWorkspaceStore((state) => state.featureFocusRequest);
   const featurePreviews = useWorkspaceStore((state) => state.featurePreviews);
@@ -365,6 +412,8 @@ export function MapCanvas() {
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
   const upsertBackendLayer = useWorkspaceStore((state) => state.upsertBackendLayer);
+  const selectBackendFeature = useWorkspaceStore((state) => state.selectBackendFeature);
+  const recordEdit = useWorkspaceStore((state) => state.recordEdit);
   const selectedBasemap = useMemo(
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
@@ -838,6 +887,241 @@ export function MapCanvas() {
 
   useEffect(() => {
     const map = mapInstanceRef.current;
+    if (!map || mapReady === 0 || workspaceMode !== 'edit' || !snapEnabled) return;
+
+    const interactions = snapEligibleLayers(layers).flatMap((layer) => {
+      const source = backendLayersRef.current.get(layer.id)?.getSource();
+      return source ? [new Snap({ source, pixelTolerance: SNAP_PIXEL_TOLERANCE })] : [];
+    });
+    snapInteractionsRef.current = interactions;
+    for (const interaction of interactions) map.addInteraction(interaction);
+
+    return () => {
+      for (const interaction of interactions) map.removeInteraction(interaction);
+      if (snapInteractionsRef.current === interactions) snapInteractionsRef.current = [];
+    };
+  }, [layers, mapReady, snapEnabled, workspaceMode]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (
+      !map ||
+      mapReady === 0 ||
+      workspaceMode !== 'edit' ||
+      !['select', 'move'].includes(activeTool)
+    ) {
+      return;
+    }
+    const workspaceLayer = layers.find(
+      (layer) =>
+        layer.id === selectedLayerId &&
+        layer.source === 'backend' &&
+        layer.kind !== 'raster' &&
+        layer.visible &&
+        !layer.locked &&
+        ['Polygon', 'Mixed'].includes(layer.geometryType),
+    );
+    const vectorLayer = workspaceLayer
+      ? backendLayersRef.current.get(workspaceLayer.id)
+      : undefined;
+    const source = vectorLayer?.getSource();
+    if (!workspaceLayer || !vectorLayer || !source) return;
+
+    const select = new SelectInteraction({ layers: [vectorLayer], hitTolerance: 7 });
+    const modify = new Modify({ features: select.getFeatures(), pixelTolerance: 8 });
+    const snapshots = new globalThis.Map<
+      BackendFeature,
+      { coordinates: number[][][]; properties: Record<string, unknown>; revision: number }
+    >();
+
+    const applyUpdate = async (
+      feature: BackendFeature,
+      coordinates: number[][][],
+      properties: Record<string, unknown>,
+      record: { id: number; revision: number },
+    ) => {
+      const response = await updateLayerFeature(
+        workspaceLayer.id,
+        record.id,
+        coordinates,
+        properties,
+        record.revision,
+      );
+      record.revision = response.feature.revision;
+      const currentFeature = resolveCurrentBackendFeature(
+        source,
+        workspaceLayer.id,
+        record.id,
+        feature,
+      );
+      const geometry = currentFeature.getGeometry();
+      if (geometry instanceof Polygon) geometry.setCoordinates(response.feature.geometry.coordinates);
+      currentFeature.set('womapProperties', response.feature.properties);
+      currentFeature.set('womapRevision', response.feature.revision);
+      upsertBackendLayer(normalizeBackendLayer(response.layer));
+      vectorLayer.changed();
+    };
+
+    select.on('select', (event) => {
+      const selected = event.selected[0] as BackendFeature | undefined;
+      const id = selected ? backendFeatureId(selected) : null;
+      selectBackendFeature(workspaceLayer.id, id?.featureId ?? null);
+    });
+    modify.on('modifystart', (event: ModifyEvent) => {
+      for (const feature of event.features.getArray() as BackendFeature[]) {
+        const geometry = feature.getGeometry();
+        if (!(geometry instanceof Polygon)) continue;
+        snapshots.set(feature, {
+          coordinates: geometry.clone().getCoordinates(),
+          properties: { ...(feature.get('womapProperties') ?? {}) },
+          revision: Number(feature.get('womapRevision') ?? 1),
+        });
+      }
+    });
+    modify.on('modifyend', (event: ModifyEvent) => {
+      modify.setActive(false);
+      const tasks = (event.features.getArray() as BackendFeature[]).map(async (feature) => {
+        const id = backendFeatureId(feature);
+        const geometry = feature.getGeometry();
+        const previous = snapshots.get(feature);
+        if (!id || !(geometry instanceof Polygon) || !previous) return;
+        const nextCoordinates = geometry.clone().getCoordinates();
+        const record = { id: id.featureId, revision: previous.revision };
+        try {
+          await applyUpdate(feature, nextCoordinates, previous.properties, record);
+          recordEdit({
+            label: '修改图斑',
+            undo: () => applyUpdate(feature, previous.coordinates, previous.properties, record),
+            redo: () => applyUpdate(feature, nextCoordinates, previous.properties, record),
+          });
+          showNotice({
+            tone: 'success',
+            title: '图斑修改已保存',
+            detail: `${workspaceLayer.name} · 图斑 ${record.id}`,
+          });
+        } catch (error) {
+          const currentFeature = resolveCurrentBackendFeature(
+            source,
+            workspaceLayer.id,
+            record.id,
+            feature,
+          );
+          const currentGeometry = currentFeature.getGeometry();
+          if (currentGeometry instanceof Polygon) {
+            currentGeometry.setCoordinates(previous.coordinates);
+          }
+          vectorLayer.changed();
+          showNotice({
+            tone: 'warning',
+            title: '图斑修改失败',
+            detail: error instanceof Error ? error.message : '已恢复修改前几何。',
+          });
+        } finally {
+          snapshots.delete(feature);
+        }
+      });
+      void Promise.all(tasks).finally(() => modify.setActive(activeTool === 'move'));
+    });
+
+    const handleDelete = (event: KeyboardEvent) => {
+      if (!['Delete', 'Backspace'].includes(event.key)) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      const feature = select.getFeatures().item(0) as BackendFeature | undefined;
+      const id = feature ? backendFeatureId(feature) : null;
+      const geometry = feature?.getGeometry();
+      if (!feature || !id || !(geometry instanceof Polygon)) return;
+      event.preventDefault();
+      const coordinates = geometry.clone().getCoordinates();
+      const properties = { ...(feature.get('womapProperties') ?? {}) } as Record<string, unknown>;
+      const record = {
+        id: id.featureId,
+        revision: Number(feature.get('womapRevision') ?? 1),
+      };
+      select.setActive(false);
+      void deleteLayerFeature(workspaceLayer.id, record.id, record.revision)
+        .then((response) => {
+          source.removeFeature(feature);
+          select.getFeatures().clear();
+          selectBackendFeature(workspaceLayer.id, null);
+          upsertBackendLayer(normalizeBackendLayer(response.layer), true);
+          recordEdit({
+            label: '删除图斑',
+            undo: async () => {
+              const recreated = await createLayerFeature(
+                workspaceLayer.id,
+                coordinates,
+                properties,
+              );
+              record.id = recreated.feature.id;
+              record.revision = recreated.feature.revision;
+              source.addFeature(
+                mutationFeature(workspaceLayer.id, workspaceLayer.geometryType, recreated),
+              );
+              upsertBackendLayer(normalizeBackendLayer(recreated.layer), true);
+            },
+            redo: async () => {
+              const deleted = await deleteLayerFeature(
+                workspaceLayer.id,
+                record.id,
+                record.revision,
+              );
+              const current = source.getFeatureById(`backend:${workspaceLayer.id}:${record.id}`);
+              if (current) source.removeFeature(current);
+              upsertBackendLayer(normalizeBackendLayer(deleted.layer), true);
+            },
+          });
+          showNotice({
+            tone: 'success',
+            title: '图斑已删除',
+            detail: '可使用撤销恢复该图斑。',
+          });
+        })
+        .catch((error) =>
+          showNotice({
+            tone: 'warning',
+            title: '图斑删除失败',
+            detail: error instanceof Error ? error.message : '后端拒绝删除当前图斑。',
+          }),
+        )
+        .finally(() => select.setActive(true));
+    };
+
+    modify.setActive(activeTool === 'move');
+    editSelectInteractionRef.current = select;
+    modifyInteractionRef.current = modify;
+    map.addInteraction(select);
+    map.addInteraction(modify);
+    window.addEventListener('keydown', handleDelete);
+    return () => {
+      window.removeEventListener('keydown', handleDelete);
+      select.getFeatures().clear();
+      map.removeInteraction(modify);
+      map.removeInteraction(select);
+      if (editSelectInteractionRef.current === select) editSelectInteractionRef.current = null;
+      if (modifyInteractionRef.current === modify) modifyInteractionRef.current = null;
+    };
+  }, [
+    activeTool,
+    layers,
+    mapReady,
+    recordEdit,
+    selectBackendFeature,
+    selectedLayerId,
+    showNotice,
+    upsertBackendLayer,
+    workspaceMode,
+  ]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
     if (
       !map ||
       mapReady === 0 ||
@@ -883,23 +1167,48 @@ export function MapCanvas() {
       )
         .then((response) => {
           const normalizedLayer = normalizeBackendLayer(response.layer);
-          const savedFeature = new GeoJSON().readFeature(
-            {
-              type: 'Feature',
-              id: response.feature.id,
-              geometry: response.feature.geometry,
-              properties: response.feature.properties,
-            },
-            { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
-          ) as BackendFeature;
-          savedFeature.set('layerId', normalizedLayer.id);
-          savedFeature.set('geometryType', normalizedLayer.geometryType);
-          savedFeature.setId(`backend:${normalizedLayer.id}:${response.feature.id}`);
-          backendLayersRef.current
-            .get(normalizedLayer.id)
-            ?.getSource()
-            ?.addFeature(savedFeature);
+          const source = backendLayersRef.current.get(normalizedLayer.id)?.getSource();
+          const savedFeature = mutationFeature(
+            normalizedLayer.id,
+            normalizedLayer.geometryType,
+            response,
+          );
+          source?.addFeature(savedFeature);
           upsertBackendLayer(normalizedLayer, true);
+          const coordinates = response.feature.geometry.coordinates;
+          const properties = response.feature.properties;
+          const record = {
+            id: response.feature.id,
+            revision: response.feature.revision,
+          };
+          recordEdit({
+            label: '新增图斑',
+            undo: async () => {
+              const deleted = await deleteLayerFeature(
+                normalizedLayer.id,
+                record.id,
+                record.revision,
+              );
+              const current = source?.getFeatureById(
+                `backend:${normalizedLayer.id}:${record.id}`,
+              );
+              if (current) source?.removeFeature(current);
+              upsertBackendLayer(normalizeBackendLayer(deleted.layer), true);
+            },
+            redo: async () => {
+              const recreated = await createLayerFeature(
+                normalizedLayer.id,
+                coordinates,
+                properties,
+              );
+              record.id = recreated.feature.id;
+              record.revision = recreated.feature.revision;
+              source?.addFeature(
+                mutationFeature(normalizedLayer.id, normalizedLayer.geometryType, recreated),
+              );
+              upsertBackendLayer(normalizeBackendLayer(recreated.layer), true);
+            },
+          });
           showNotice({
             tone: 'success',
             title: '图斑已保存',
@@ -939,6 +1248,7 @@ export function MapCanvas() {
     activeTool,
     drawingTargetLayerId,
     mapReady,
+    recordEdit,
     showNotice,
     toolActivationSequence,
     upsertBackendLayer,
@@ -1011,6 +1321,7 @@ export function MapCanvas() {
                   source_feature_id?: string | null;
                   geometry: unknown;
                   properties: Record<string, unknown>;
+                  revision?: number;
                 }>).map((feature) => ({
                   type: 'Feature',
                   id: feature.id,
@@ -1018,6 +1329,8 @@ export function MapCanvas() {
                   properties: {
                     ...feature.properties,
                     womapSourceFeatureId: feature.source_feature_id ?? null,
+                    womapProperties: feature.properties,
+                    womapRevision: feature.revision ?? 1,
                   },
                 })),
               },

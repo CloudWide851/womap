@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 
 import { WorkbenchLayout } from '../layouts/WorkbenchLayout';
+import { AUTH_UNAUTHORIZED_EVENT } from '../services/api';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import type { AppPageMode } from '../types/workspace';
@@ -28,17 +29,33 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<'import-sources' | null>(null);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const authenticated = useAuthStore((state) => state.authenticated);
+  const initialized = useAuthStore((state) => state.initialized);
   const expiresAt = useAuthStore((state) => state.expiresAt);
   const policyRefreshSeconds = useAuthStore((state) => state.policy.policyRefreshSeconds);
+  const initialize = useAuthStore((state) => state.initialize);
+  const refreshPolicy = useAuthStore((state) => state.refreshPolicy);
+  const handleUnauthorized = useAuthStore((state) => state.handleUnauthorized);
   const tick = useAuthStore((state) => state.tick);
   const inspectorTarget = useWorkspaceStore((state) => state.inspectorTarget);
+
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+  }, [handleUnauthorized]);
 
   useEffect(() => {
     if (!authenticated) {
       return;
     }
 
-    const refreshTimer = window.setInterval(() => tick(), policyRefreshSeconds * 1000);
+    const refreshTimer = window.setInterval(() => {
+      tick();
+      void refreshPolicy();
+    }, policyRefreshSeconds * 1000);
     const expiryTimer =
       expiresAt === null
         ? null
@@ -50,7 +67,7 @@ export function App() {
         window.clearTimeout(expiryTimer);
       }
     };
-  }, [authenticated, expiresAt, policyRefreshSeconds, tick]);
+  }, [authenticated, expiresAt, policyRefreshSeconds, refreshPolicy, tick]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -74,7 +91,9 @@ export function App() {
   return (
     <div className="app-shell">
       <Suspense fallback={<div className="app-loading" role="status" aria-label="加载中" />}>
-        {!authenticated ? (
+        {!initialized ? (
+          <div className="app-loading" role="status" aria-label="正在连接本地服务" />
+        ) : !authenticated ? (
           <LoginPage />
         ) : !workspaceReady ? (
           <div className="app-loading" role="status" aria-label="加载中" />

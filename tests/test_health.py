@@ -10,6 +10,7 @@ from app.features.layers.service import LayerService
 from app.features.map_features.repository import MapFeatureRepository
 from app.features.map_features.router import get_map_feature_service
 from app.features.map_features.service import MapFeatureService
+from conftest import allow_test_auth
 
 
 class EmptyMapFeatureRepository(MapFeatureRepository):
@@ -19,7 +20,7 @@ class EmptyMapFeatureRepository(MapFeatureRepository):
 
 
 def create_api_test_app():
-    app = create_app()
+    app = allow_test_auth(create_app())
     app.dependency_overrides[get_layer_service] = lambda: LayerService(LayerRepository())
     app.dependency_overrides[get_map_feature_service] = lambda: MapFeatureService(
         EmptyMapFeatureRepository()
@@ -35,10 +36,18 @@ def test_health_returns_service_status() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "ok"
-    assert body["database"] == "postgresql"
-    assert body["postgis_target"] is True
-    assert body["redis_configured"] is True
+    assert body == {"status": "alive"}
+    assert response.headers["x-request-id"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_liveness_probe_does_not_expose_runtime_configuration() -> None:
+    response = TestClient(create_app()).get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "alive"}
+    assert "database" not in response.text
+    assert "config" not in response.text
 
 
 def test_placeholder_api_routes_are_available() -> None:
@@ -49,7 +58,7 @@ def test_placeholder_api_routes_are_available() -> None:
 
 
 def test_basemaps_api_returns_enabled_providers() -> None:
-    client = TestClient(create_app())
+    client = TestClient(allow_test_auth(create_app()))
 
     response = client.get("/api/v1/basemaps")
 
@@ -85,6 +94,42 @@ def test_login_rejects_password_outside_policy_before_secret_check() -> None:
     )
 
     assert response.status_code == 400
+    assert response.json()["request_id"] == response.headers["x-request-id"]
+
+
+def test_validation_error_does_not_echo_rejected_input() -> None:
+    client = TestClient(create_app())
+    rejected_value = "should-never-be-returned"
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "local-admin",
+            "password": "long-enough-local-password",
+            "session_mode": rejected_value,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "请求参数无效。"
+    assert response.json()["request_id"] == response.headers["x-request-id"]
+    assert rejected_value not in response.text
+
+
+def test_unhandled_error_is_redacted_and_correlated() -> None:
+    app = create_app()
+    private_message = "private-diagnostic-value"
+
+    @app.get("/test/unhandled")
+    async def unhandled() -> None:
+        raise RuntimeError(private_message)
+
+    response = TestClient(app, raise_server_exceptions=False).get("/test/unhandled")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "服务处理请求时发生错误。"
+    assert response.json()["request_id"] == response.headers["x-request-id"]
+    assert private_message not in response.text
 
 
 def test_feature_query_rejects_invalid_bbox() -> None:
@@ -117,12 +162,13 @@ def test_job_status_placeholder_route() -> None:
 
 
 def test_runtime_settings_api_uses_yaml_performance_config() -> None:
-    client = TestClient(create_app())
+    client = TestClient(allow_test_auth(create_app()))
 
     response = client.get("/api/v1/settings/runtime")
 
     assert response.status_code == 200
     body = response.json()
+    assert body["config_source"] in {"local", "example"}
     assert body["database"] == "postgresql"
     assert body["postgis_target"] is True
     assert body["performance"]["max_features_per_request"] == 5000

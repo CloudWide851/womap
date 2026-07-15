@@ -44,3 +44,7 @@ class LoginResponse(BaseModel):
     renewal_in_seconds: int
     policy_refresh_seconds: int
     message: str
+
+
+class SessionResponse(LoginResponse):
+    pass

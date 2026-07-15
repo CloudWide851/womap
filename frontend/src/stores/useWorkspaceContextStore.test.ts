@@ -193,4 +193,30 @@ describe('workspace context store', () => {
       current: { revision: 2 },
     });
   });
+
+  it('keeps a failed save dirty and exposes a save-specific error', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/workspaces') && !init?.method) return jsonResponse([summary]);
+      if (url.endsWith('/api/v1/workspaces/1') && init?.method === 'PUT') {
+        return jsonResponse({ detail: '工作空间已被其他窗口修改。' }, 409);
+      }
+      if (url.endsWith('/api/v1/workspaces/1')) return jsonResponse(workspaceDetail());
+      return jsonResponse({ detail: 'not found' }, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await useWorkspaceContextStore.getState().initialize();
+    useWorkspaceContextStore.getState().markDirty();
+
+    await expect(useWorkspaceContextStore.getState().saveCurrent()).rejects.toThrow(
+      '工作空间已被其他窗口修改。',
+    );
+
+    expect(useWorkspaceContextStore.getState()).toMatchObject({
+      dirty: true,
+      saving: false,
+      error: '工作空间已被其他窗口修改。',
+      saveError: '工作空间已被其他窗口修改。',
+    });
+  });
 });

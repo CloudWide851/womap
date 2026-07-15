@@ -10,10 +10,17 @@ import type {
   WorkspaceMode,
 } from '../types/workspace';
 
+export interface EditHistoryAction {
+  label: string;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+}
+
 interface WorkspaceState {
   activeTool: string;
   toolActivationSequence: number;
   workspaceMode: WorkspaceMode;
+  snapEnabled: boolean;
   selectedLayerId: string | null;
   selectedFeatureId: string | null;
   featureFocusRequest: FeatureFocusRequest | null;
@@ -21,11 +28,16 @@ interface WorkspaceState {
   notice: WorkspaceNotice | null;
   layers: WorkspaceLayer[];
   featurePreviews: FeatureAttributePreview[];
+  historyPast: EditHistoryAction[];
+  historyFuture: EditHistoryAction[];
+  historyBusy: boolean;
   setActiveTool: (tool: string) => void;
   setWorkspaceMode: (mode: WorkspaceMode) => void;
+  toggleSnap: () => void;
   notifyCommand: (command: WorkspaceCommand) => void;
   showNotice: (notice: Omit<WorkspaceNotice, 'id'>) => void;
   selectLayer: (layerId: string) => void;
+  selectBackendFeature: (layerId: string, featureId: number | null) => void;
   focusFeature: (featureId: string) => void;
   openLayerInspector: (layerId: string) => void;
   openFeatureInspector: (layerId: string, featureId: string) => void;
@@ -34,6 +46,9 @@ interface WorkspaceState {
   setLayerOpacity: (layerId: string, opacity: number) => void;
   setBackendLayers: (layers: WorkspaceLayer[]) => void;
   upsertBackendLayer: (layer: WorkspaceLayer, select?: boolean) => void;
+  recordEdit: (action: EditHistoryAction) => void;
+  undoEdit: () => Promise<void>;
+  redoEdit: () => Promise<void>;
   reset: () => void;
 }
 
@@ -347,6 +362,7 @@ function createInitialState() {
     activeTool: 'select',
     toolActivationSequence: 0,
     workspaceMode: 'browse' as WorkspaceMode,
+    snapEnabled: true,
     selectedLayerId: 'project-boundary',
     selectedFeatureId: 'feature-boundary-102',
     featureFocusRequest: null,
@@ -354,10 +370,13 @@ function createInitialState() {
     notice: null,
     layers: createInitialLayers(),
     featurePreviews: createFeaturePreviews(),
+    historyPast: [] as EditHistoryAction[],
+    historyFuture: [] as EditHistoryAction[],
+    historyBusy: false,
   };
 }
 
-export const useWorkspaceStore = create<WorkspaceState>((set) => ({
+export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   ...createInitialState(),
   setActiveTool: (tool) =>
     set((state) => ({
@@ -371,6 +390,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       activeTool: mode === 'edit' ? state.activeTool : 'select',
       notice: createWorkspaceModeNotice(mode),
     })),
+  toggleSnap: () =>
+    set((state) => ({
+      snapEnabled: !state.snapEnabled,
+      notice: createNotice({
+        tone: 'info',
+        title: state.snapEnabled ? '顶点吸附已关闭' : '顶点吸附已开启',
+        detail: state.snapEnabled
+          ? '绘制和移动时不再自动贴合附近要素。'
+          : '绘制和移动将贴合可见、未锁定的真实矢量图层。',
+      }),
+    })),
   notifyCommand: (command) => set({ notice: createNotice(commandNotices[command]) }),
   showNotice: (notice) => set({ notice: createNotice(notice) }),
   selectLayer: (layerId) =>
@@ -380,6 +410,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
         selectedLayerId: layerId,
         selectedFeatureId: firstFeature?.id ?? null,
       };
+    }),
+  selectBackendFeature: (layerId, featureId) =>
+    set({
+      selectedLayerId: layerId,
+      selectedFeatureId: featureId === null ? null : `backend:${layerId}:${featureId}`,
     }),
   focusFeature: (featureId) =>
     set((state) => {
@@ -450,5 +485,70 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
         selectedFeatureId: select ? null : state.selectedFeatureId,
       };
     }),
+  recordEdit: (action) =>
+    set((state) => ({
+      historyPast: [...state.historyPast, action].slice(-50),
+      historyFuture: [],
+    })),
+  undoEdit: async () => {
+    const action = get().historyPast.at(-1);
+    if (!action || get().historyBusy) {
+      set({ notice: createNotice(commandNotices.undo) });
+      return;
+    }
+    set({ historyBusy: true });
+    try {
+      await action.undo();
+      set((state) => ({
+        historyPast: state.historyPast.slice(0, -1),
+        historyFuture: [action, ...state.historyFuture].slice(0, 50),
+        notice: createNotice({
+          tone: 'success',
+          title: `已撤销${action.label}`,
+          detail: '地图与后端数据已同步。',
+        }),
+      }));
+    } catch (error) {
+      set({
+        notice: createNotice({
+          tone: 'warning',
+          title: '撤销失败',
+          detail: error instanceof Error ? error.message : '后端未能恢复上一状态。',
+        }),
+      });
+    } finally {
+      set({ historyBusy: false });
+    }
+  },
+  redoEdit: async () => {
+    const action = get().historyFuture[0];
+    if (!action || get().historyBusy) {
+      set({ notice: createNotice(commandNotices.redo) });
+      return;
+    }
+    set({ historyBusy: true });
+    try {
+      await action.redo();
+      set((state) => ({
+        historyPast: [...state.historyPast, action].slice(-50),
+        historyFuture: state.historyFuture.slice(1),
+        notice: createNotice({
+          tone: 'success',
+          title: `已重做${action.label}`,
+          detail: '地图与后端数据已同步。',
+        }),
+      }));
+    } catch (error) {
+      set({
+        notice: createNotice({
+          tone: 'warning',
+          title: '重做失败',
+          detail: error instanceof Error ? error.message : '后端未能重做该操作。',
+        }),
+      });
+    } finally {
+      set({ historyBusy: false });
+    }
+  },
   reset: () => set(createInitialState()),
 }));

@@ -6,8 +6,10 @@ from app.features.map_features.schemas import (
     FeatureCollectionResponse,
     MapFeatureCreate,
     MapFeatureCreateResponse,
+    MapFeatureDeleteResponse,
     MapFeatureDetail,
     MapFeatureSummaryPage,
+    MapFeatureUpdate,
 )
 from app.features.workspaces.schemas import WorkspaceSelectionFilter
 from app.features.workspaces.service import WorkspaceService
@@ -118,12 +120,7 @@ class MapFeatureService:
         layer = await self.repository.get_layer(layer_id)
         if layer is None:
             raise KeyError(layer_id)
-        if layer.locked:
-            raise RuntimeError("目标图层已锁定，无法新增图斑。")
-        if not layer.visible:
-            raise RuntimeError("目标图层已隐藏，无法新增图斑。")
-        if layer.geometry_type not in {"Polygon", "Mixed"}:
-            raise RuntimeError("目标图层的几何类型不支持 Polygon 图斑。")
+        self._ensure_editable_polygon_layer(layer, "新增")
         polygon = self._validate_polygon(payload)
         feature, layer_summary = await self.repository.create_polygon_feature(
             layer,
@@ -131,6 +128,48 @@ class MapFeatureService:
             payload.properties,
         )
         return MapFeatureCreateResponse(feature=feature, layer=layer_summary)
+
+    async def update_polygon_feature(
+        self,
+        layer_id: int,
+        feature_id: int,
+        payload: MapFeatureUpdate,
+    ) -> MapFeatureCreateResponse:
+        layer = await self.repository.get_layer(layer_id)
+        if layer is None:
+            raise KeyError(layer_id)
+        self._ensure_editable_polygon_layer(layer, "修改")
+        feature = await self.repository.get_feature(layer_id, feature_id)
+        if feature is None:
+            raise KeyError(feature_id)
+        if feature.revision != payload.revision:
+            raise RuntimeError("图斑已被其他操作更新，请刷新后重试。")
+        polygon = self._validate_polygon(payload)
+        saved, layer_summary = await self.repository.update_polygon_feature(
+            layer,
+            feature,
+            polygon,
+            payload.properties,
+        )
+        return MapFeatureCreateResponse(feature=saved, layer=layer_summary)
+
+    async def delete_polygon_feature(
+        self,
+        layer_id: int,
+        feature_id: int,
+        revision: int,
+    ) -> MapFeatureDeleteResponse:
+        layer = await self.repository.get_layer(layer_id)
+        if layer is None:
+            raise KeyError(layer_id)
+        self._ensure_editable_polygon_layer(layer, "删除")
+        feature = await self.repository.get_feature(layer_id, feature_id)
+        if feature is None:
+            raise KeyError(feature_id)
+        if feature.revision != revision:
+            raise RuntimeError("图斑已被其他操作更新，请刷新后重试。")
+        layer_summary = await self.repository.delete_polygon_feature(layer, feature)
+        return MapFeatureDeleteResponse(deleted_feature_id=feature_id, layer=layer_summary)
 
     @staticmethod
     def _validate_polygon(payload: MapFeatureCreate) -> Polygon:
@@ -152,6 +191,15 @@ class MapFeatureService:
         if geometry.is_empty or geometry.area <= 0:
             raise ValueError("Polygon 不能为空或面积为零。")
         return geometry
+
+    @staticmethod
+    def _ensure_editable_polygon_layer(layer, action: str) -> None:
+        if layer.locked:
+            raise RuntimeError(f"目标图层已锁定，无法{action}图斑。")
+        if not layer.visible:
+            raise RuntimeError(f"目标图层已隐藏，无法{action}图斑。")
+        if layer.geometry_type not in {"Polygon", "Mixed"}:
+            raise RuntimeError("目标图层的几何类型不支持 Polygon 图斑。")
 
     async def _ensure_vector_layer(self, layer_id: int) -> None:
         if getattr(self.repository, "session", None) is None:

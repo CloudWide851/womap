@@ -1,6 +1,5 @@
-import { ArrowLeft, DatabaseZap, Gauge, KeyRound, MapPinned, PanelsTopLeft, RotateCw, ShieldCheck } from 'lucide-react';
-import { memo, useEffect } from 'react';
-import type { ReactNode } from 'react';
+import { ArrowLeft, DatabaseZap, Gauge, ShieldCheck } from 'lucide-react';
+import { useEffect } from 'react';
 
 import womapLogo from '../../../logo.svg';
 import { IconTooltipButton } from '../components/IconTooltipButton';
@@ -8,36 +7,13 @@ import { BasemapPanel } from '../features/basemaps/BasemapPanel';
 import { SecurityPanel } from '../features/security/SecurityPanel';
 import { PanelSettings } from '../features/settings/PanelSettings';
 import { ImportSourceSettings } from '../features/settings/ImportSourceSettings';
-import { useAuthStore } from '../stores/useAuthStore';
-import { useSettingsStore } from '../stores/useSettingsStore';
 
 interface SettingsPageProps {
   onBack: () => void;
   focusSection?: 'import-sources' | null;
 }
 
-interface SettingsMetricProps {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}
-
-const SettingsMetric = memo(function SettingsMetric({ icon, label, value }: SettingsMetricProps) {
-  return (
-    <div className="settings-metric" aria-label={`${label} ${value}`}>
-      {icon}
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-});
-
 export function SettingsPage({ onBack, focusSection }: SettingsPageProps) {
-  const basemaps = useSettingsStore((state) => state.basemaps);
-  const policy = useAuthStore((state) => state.policy);
-  const enabledBasemapCount = basemaps.filter((provider) => provider.enabled).length;
-  const keyedProviderCount = basemaps.filter((provider) => provider.apiKeyConfigured).length;
-
   useEffect(() => {
     if (focusSection !== 'import-sources') return;
     window.requestAnimationFrame(() =>
@@ -65,28 +41,7 @@ export function SettingsPage({ onBack, focusSection }: SettingsPageProps) {
             <p>设置</p>
             <h1>工作台设置</h1>
           </div>
-          <div className="settings-metrics-grid">
-            <SettingsMetric
-              icon={<PanelsTopLeft size={17} aria-hidden="true" />}
-              label="面板"
-              value="分离"
-            />
-            <SettingsMetric
-              icon={<MapPinned size={17} aria-hidden="true" />}
-              label="底图"
-              value={`${enabledBasemapCount}`}
-            />
-            <SettingsMetric
-              icon={<KeyRound size={17} aria-hidden="true" />}
-              label="密钥"
-              value={`${keyedProviderCount}`}
-            />
-            <SettingsMetric
-              icon={<RotateCw size={17} aria-hidden="true" />}
-              label="刷新"
-              value={`${policy.policyRefreshSeconds}s`}
-            />
-          </div>
+          <p className="settings-intro-copy">数据源、界面、底图与安全策略集中管理，修改后立即回到地图验证。</p>
         </section>
 
         <div className="settings-grid">
@@ -123,7 +78,7 @@ export function SettingsPage({ onBack, focusSection }: SettingsPageProps) {
               <span>Core Web Vitals · LCP / INP / CLS</span>
               <span>动画 · transform / opacity</span>
               <span>React · memo + 窄 selector</span>
-              <span>地图 · bbox 后续接 WebGL / 瓦片</span>
+              <span>地图 · bbox 矢量加载 + COG Range</span>
             </div>
             <div className="settings-status">
               <ShieldCheck size={16} aria-hidden="true" />

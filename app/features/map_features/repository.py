@@ -52,6 +52,7 @@ class MapFeatureRepository:
                 MapFeature.layer_id,
                 MapFeature.source_feature_id,
                 MapFeature.properties,
+                MapFeature.revision,
                 func.ST_AsGeoJSON(geometry_expression).label("geometry_json"),
             )
             .where(
@@ -77,6 +78,7 @@ class MapFeatureRepository:
                     source_feature_id=row["source_feature_id"],
                     geometry=FeatureGeometry.model_validate(geometry) if geometry else None,
                     properties=dict(row["properties"] or {}),
+                    revision=int(row["revision"]),
                 )
             )
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
@@ -213,8 +215,104 @@ class MapFeatureRepository:
                 source_feature_id=feature.source_feature_id,
                 geometry=FeatureGeometry.model_validate(mapping(polygon)),
                 properties=dict(feature.properties or {}),
+                revision=feature.revision,
             ),
             LayerRepository.to_summary(layer),
+        )
+
+    async def get_feature(self, layer_id: int, feature_id: int) -> MapFeature | None:
+        if self.session is None:
+            return None
+        feature = await self.session.get(MapFeature, feature_id)
+        if feature is None or feature.layer_id != layer_id:
+            return None
+        return feature
+
+    async def update_polygon_feature(
+        self,
+        layer: Layer,
+        feature: MapFeature,
+        polygon: Polygon,
+        properties: dict[str, Any],
+    ) -> tuple[MapFeatureItem, LayerSummary]:
+        if self.session is None:
+            raise RuntimeError("数据库会话不可用。")
+        min_x, min_y, max_x, max_y = polygon.bounds
+        feature.geom = from_shape(polygon, srid=3857)
+        feature.properties = properties
+        feature.bbox = {
+            "min_x": float(min_x),
+            "min_y": float(min_y),
+            "max_x": float(max_x),
+            "max_y": float(max_y),
+        }
+        feature.area = float(polygon.area)
+        feature.perimeter = float(polygon.length)
+        feature.revision += 1
+        try:
+            await self._refresh_layer_aggregate(layer)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+        await self.session.refresh(feature)
+        await self.session.refresh(layer)
+        return self._item(feature, polygon), LayerRepository.to_summary(layer)
+
+    async def delete_polygon_feature(
+        self,
+        layer: Layer,
+        feature: MapFeature,
+    ) -> LayerSummary:
+        if self.session is None:
+            raise RuntimeError("数据库会话不可用。")
+        try:
+            await self.session.delete(feature)
+            await self._refresh_layer_aggregate(layer)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+        await self.session.refresh(layer)
+        return LayerRepository.to_summary(layer)
+
+    async def _refresh_layer_aggregate(self, layer: Layer) -> None:
+        if self.session is None:
+            raise RuntimeError("数据库会话不可用。")
+        await self.session.flush()
+        extent = func.ST_Extent(MapFeature.geom)
+        row = (
+            await self.session.execute(
+                select(
+                    func.count(MapFeature.id).label("feature_count"),
+                    func.ST_XMin(extent).label("min_x"),
+                    func.ST_YMin(extent).label("min_y"),
+                    func.ST_XMax(extent).label("max_x"),
+                    func.ST_YMax(extent).label("max_y"),
+                ).where(MapFeature.layer_id == layer.id)
+            )
+        ).mappings().one()
+        layer.feature_count = int(row["feature_count"])
+        layer.bounds = (
+            {
+                "min_x": float(row["min_x"]),
+                "min_y": float(row["min_y"]),
+                "max_x": float(row["max_x"]),
+                "max_y": float(row["max_y"]),
+            }
+            if row["min_x"] is not None
+            else {}
+        )
+
+    @staticmethod
+    def _item(feature: MapFeature, polygon: Polygon) -> MapFeatureItem:
+        return MapFeatureItem(
+            id=feature.id,
+            layer_id=feature.layer_id,
+            source_feature_id=feature.source_feature_id,
+            geometry=FeatureGeometry.model_validate(mapping(polygon)),
+            properties=dict(feature.properties or {}),
+            revision=feature.revision,
         )
 
     @staticmethod

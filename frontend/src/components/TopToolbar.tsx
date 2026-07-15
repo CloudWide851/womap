@@ -19,6 +19,7 @@ import {
   SplitSquareHorizontal,
   Undo2,
   LogOut,
+  Magnet,
 } from 'lucide-react';
 import {
   Button,
@@ -251,7 +252,11 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const workspaceMode = useWorkspaceStore((state) => state.workspaceMode);
   const setActiveTool = useWorkspaceStore((state) => state.setActiveTool);
   const setWorkspaceMode = useWorkspaceStore((state) => state.setWorkspaceMode);
+  const snapEnabled = useWorkspaceStore((state) => state.snapEnabled);
+  const toggleSnap = useWorkspaceStore((state) => state.toggleSnap);
   const notifyCommand = useWorkspaceStore((state) => state.notifyCommand);
+  const undoEdit = useWorkspaceStore((state) => state.undoEdit);
+  const redoEdit = useWorkspaceStore((state) => state.redoEdit);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
   const currentWorkspace = useWorkspaceContextStore((state) => state.current);
   const workspaceDirty = useWorkspaceContextStore((state) => state.dirty);
@@ -281,6 +286,11 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState<'shp' | 'gdb'>('shp');
   const [checkedLayerIds, setCheckedLayerIds] = useState<string[]>([]);
+  useEffect(() => {
+    const openImportCenter = () => setImportOpen(true);
+    window.addEventListener('womap:open-import-center', openImportCenter);
+    return () => window.removeEventListener('womap:open-import-center', openImportCenter);
+  }, []);
   const basemapOptions = useMemo(
     () =>
       basemaps.map((provider) => ({
@@ -545,6 +555,14 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
                 />
               );
             })}
+            <IconTooltipButton
+              className="tool-icon-button"
+              type={snapEnabled ? 'primary' : 'default'}
+              icon={<Magnet size={17} />}
+              label={snapEnabled ? '关闭顶点吸附' : '开启顶点吸附'}
+              aria-pressed={snapEnabled}
+              onClick={toggleSnap}
+            />
           </span>
         )}
 
@@ -553,13 +571,13 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
             className="tool-icon-button"
             label="撤销"
             icon={<Undo2 size={17} />}
-            onClick={() => notifyCommand('undo')}
+            onClick={() => void undoEdit()}
           />
           <IconTooltipButton
             className="tool-icon-button"
             label="重做"
             icon={<Redo2 size={17} />}
-            onClick={() => notifyCommand('redo')}
+            onClick={() => void redoEdit()}
           />
         </span>
 
@@ -580,7 +598,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
             className="tool-icon-button"
             label="退出登录"
             icon={<LogOut size={17} />}
-            onClick={logout}
+            onClick={() => void logout()}
           />
         </span>
       </nav>

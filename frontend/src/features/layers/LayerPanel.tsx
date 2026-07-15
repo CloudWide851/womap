@@ -42,6 +42,9 @@ const LayerItem = memo(function LayerItem({
               : `${layer.geometryType} · ${layer.featureCount} 个要素`}
           </span>
         </span>
+        <Tag className={`layer-source-tag is-${layer.source ?? 'demo'}`}>
+          {layer.source === 'backend' ? '数据' : '示例'}
+        </Tag>
       </button>
       <span className="layer-controls">
         <IconTooltipButton

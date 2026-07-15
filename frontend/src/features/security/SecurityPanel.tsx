@@ -28,6 +28,7 @@ export function SecurityPanel() {
   const expiresAt = useAuthStore((state) => state.expiresAt);
   const now = useAuthStore((state) => state.now);
   const authenticated = useAuthStore((state) => state.authenticated);
+  const serviceStatus = useAuthStore((state) => state.serviceStatus);
 
   const remaining = authenticated && expiresAt ? formatRemainingTime(expiresAt - now) : '未登录';
 
@@ -57,6 +58,11 @@ export function SecurityPanel() {
           icon={<ShieldCheck size={15} aria-hidden="true" />}
           label="Cookie"
           value={policy.secureCookie && policy.httpOnlyCookie ? '强制' : '检查'}
+        />
+        <SecurityRow
+          icon={<ShieldCheck size={15} aria-hidden="true" />}
+          label="服务"
+          value={serviceStatus === 'ready' ? '已连接' : '不可用'}
         />
       </div>
     </section>

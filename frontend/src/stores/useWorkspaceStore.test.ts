@@ -76,4 +76,44 @@ describe('workspace store feature focus', () => {
     expect(useWorkspaceStore.getState().activeTool).toBe('draw');
     expect(useWorkspaceStore.getState().toolActivationSequence).toBe(before + 2);
   });
+
+  it('toggles vertex snapping and resets it to enabled', () => {
+    expect(useWorkspaceStore.getState().snapEnabled).toBe(true);
+
+    useWorkspaceStore.getState().toggleSnap();
+    expect(useWorkspaceStore.getState().snapEnabled).toBe(false);
+    expect(useWorkspaceStore.getState().notice?.title).toBe('顶点吸附已关闭');
+
+    useWorkspaceStore.getState().reset();
+    expect(useWorkspaceStore.getState().snapEnabled).toBe(true);
+  });
+
+  it('runs bounded asynchronous undo and redo history', async () => {
+    const operations: string[] = [];
+    useWorkspaceStore.getState().recordEdit({
+      label: '修改图斑',
+      undo: async () => {
+        operations.push('undo');
+      },
+      redo: async () => {
+        operations.push('redo');
+      },
+    });
+
+    await useWorkspaceStore.getState().undoEdit();
+    await useWorkspaceStore.getState().redoEdit();
+
+    expect(operations).toEqual(['undo', 'redo']);
+    expect(useWorkspaceStore.getState().historyPast).toHaveLength(1);
+    expect(useWorkspaceStore.getState().historyFuture).toHaveLength(0);
+
+    for (let index = 0; index < 55; index += 1) {
+      useWorkspaceStore.getState().recordEdit({
+        label: `操作 ${index}`,
+        undo: async () => undefined,
+        redo: async () => undefined,
+      });
+    }
+    expect(useWorkspaceStore.getState().historyPast).toHaveLength(50);
+  });
 });

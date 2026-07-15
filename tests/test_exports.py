@@ -16,6 +16,7 @@ from app.features.exports.service import (
 )
 from app.features.exports.writer import ExportArchive, build_shapefile_field_mapping, unique_dataset_name
 from app.main import create_app
+from conftest import allow_test_auth
 
 
 class FakeExportService:
@@ -34,7 +35,7 @@ class FakeExportService:
 
 
 def build_client(service: FakeExportService) -> TestClient:
-    app = create_app()
+    app = allow_test_auth(create_app())
     app.dependency_overrides[get_export_service] = lambda: service
     return TestClient(app)
 

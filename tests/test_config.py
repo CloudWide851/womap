@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from app.shared.config import EXAMPLE_CONFIG_PATH
 from app.shared.config import LOCAL_CONFIG_PATH
 from app.shared.config import DatabaseSettings
-from app.shared.config import load_settings
+from app.shared.config import SessionSecuritySettings, load_settings
 from app.shared.database import create_database_engine
 
 
@@ -25,6 +26,14 @@ def test_yaml_settings_loads_split_connection_fields() -> None:
     assert settings.auth.session.idle_timeout_minutes > 0
     assert settings.auth.session.absolute_timeout_hours > 0
     assert settings.performance.default_bbox_limit == 1000
+
+
+def test_same_site_none_requires_secure_cookie() -> None:
+    with pytest.raises(ValidationError, match="requires a secure session cookie"):
+        SessionSecuritySettings(same_site="none", secure_cookie=False)
+
+    settings = SessionSecuritySettings(same_site="none", secure_cookie=True)
+    assert settings.secure_cookie is True
 
 
 def test_database_url_encodes_special_password_without_manual_encoding(tmp_path: Path) -> None:

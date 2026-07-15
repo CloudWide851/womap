@@ -30,7 +30,9 @@ interface WorkspaceContextState {
   drawerOpen: boolean;
   dirty: boolean;
   loading: boolean;
+  saving: boolean;
   error: string | null;
+  saveError: string | null;
   initialize: () => Promise<void>;
   refreshCatalog: () => Promise<void>;
   switchWorkspace: (workspaceId: number) => Promise<void>;
@@ -106,9 +108,11 @@ export const useWorkspaceContextStore = create<WorkspaceContextState>((set, get)
   drawerOpen: false,
   dirty: false,
   loading: false,
+  saving: false,
   error: null,
+  saveError: null,
   initialize: async () => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, saveError: null });
     try {
       const workspaces = await getWorkspaces();
       const storedId = Number(window.localStorage.getItem(ACTIVE_WORKSPACE_KEY));
@@ -131,7 +135,7 @@ export const useWorkspaceContextStore = create<WorkspaceContextState>((set, get)
     set({ catalog });
   },
   switchWorkspace: async (workspaceId) => {
-    set({ loading: true, error: null });
+    set({ loading: true, error: null, saveError: null });
     try {
       const current = await getWorkspace(workspaceId);
       applyWorkspace(current);
@@ -147,14 +151,23 @@ export const useWorkspaceContextStore = create<WorkspaceContextState>((set, get)
   saveCurrent: async () => {
     const current = get().current;
     if (!current) throw new Error('当前没有可保存的工作空间。');
-    const saved = await updateWorkspace(current.id, {
-      ...runtimePayload(current),
-      revision: current.revision,
-    });
-    applyWorkspace(saved);
-    const workspaces = await getWorkspaces();
-    set({ current: saved, workspaces, dirty: false });
-    return saved;
+    set({ saving: true, error: null, saveError: null });
+    try {
+      const saved = await updateWorkspace(current.id, {
+        ...runtimePayload(current),
+        revision: current.revision,
+      });
+      applyWorkspace(saved);
+      const workspaces = await getWorkspaces();
+      set({ current: saved, workspaces, dirty: false, saveError: null });
+      return saved;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '工作空间保存失败。';
+      set({ error: message, saveError: message });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
   },
   createBlank: async (name) => {
     const runtimeMap = useMapStore.getState();
@@ -270,6 +283,8 @@ export const useWorkspaceContextStore = create<WorkspaceContextState>((set, get)
       drawerOpen: false,
       dirty: false,
       loading: false,
+      saving: false,
       error: null,
+      saveError: null,
     }),
 }));

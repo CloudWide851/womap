@@ -1,6 +1,6 @@
 import { Descriptions } from 'antd';
 import { BoxSelect, Layers3, TableProperties, X } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useEffect, useRef } from 'react';
 
 import { IconTooltipButton } from '../../components/IconTooltipButton';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
@@ -24,6 +24,51 @@ export function AttributeInspector() {
   const closeInspector = useWorkspaceStore((state) => state.closeInspector);
   const layers = useWorkspaceStore((state) => state.layers);
   const featurePreviews = useWorkspaceStore((state) => state.featurePreviews);
+  const dialogRef = useRef<HTMLElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!target) return;
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    window.requestAnimationFrame(() => {
+      const first = dialog?.querySelector<HTMLElement>(focusableSelector);
+      (first ?? dialog)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeInspector();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      restoreFocusRef.current?.focus();
+      restoreFocusRef.current = null;
+    };
+  }, [closeInspector, target]);
 
   if (!target) {
     return null;
@@ -51,10 +96,12 @@ export function AttributeInspector() {
         onClick={closeInspector}
       />
       <aside
+        ref={dialogRef}
         className="attribute-inspector"
         role="dialog"
         aria-modal="true"
         aria-labelledby="attribute-inspector-title"
+        tabIndex={-1}
       >
         <header className="attribute-inspector-header">
           <span className="attribute-inspector-icon">{icon}</span>

@@ -30,10 +30,58 @@ import type {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 type ExportFormat = 'shp' | 'gdb';
+export const AUTH_UNAUTHORIZED_EVENT = 'womap:auth-unauthorized';
+
+let csrfCookieName = 'womap_session_csrf';
+
+function cookieValue(name: string) {
+  if (typeof document === 'undefined') return null;
+  const prefix = `${encodeURIComponent(name)}=`;
+  const item = document.cookie.split('; ').find((entry) => entry.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : null;
+}
+
+export function configureCsrfCookie(sessionCookieName: string) {
+  csrfCookieName = `${sessionCookieName}_csrf`;
+}
+
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const method = (init.method ?? 'GET').toUpperCase();
+  const headers = new Headers(init.headers);
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !headers.has('X-WOMAP-CSRF')) {
+    const csrfToken = cookieValue(csrfCookieName);
+    if (csrfToken) headers.set('X-WOMAP-CSRF', csrfToken);
+  }
+
+  const response = await globalThis.fetch(input, {
+    ...init,
+    credentials: 'include',
+    headers,
+  });
+  const requestUrl = String(input);
+  if (
+    response.status === 401 &&
+    !requestUrl.includes('/api/v1/auth/') &&
+    typeof window !== 'undefined'
+  ) {
+    window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+  }
+  return response;
+}
 
 export function resolveApiUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
   return `${apiBaseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+}
+
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
 }
 
 async function apiError(response: Response, fallback: string) {
@@ -44,7 +92,74 @@ async function apiError(response: Response, fallback: string) {
   } catch {
     // Keep the status fallback for non-JSON responses.
   }
-  return new Error(detail);
+  return new ApiRequestError(detail, response.status);
+}
+
+export interface AuthPolicyApiResponse {
+  enabled: boolean;
+  username: string;
+  credential_configured: boolean;
+  password_min_length: number;
+  password_max_length: number;
+  block_common_passwords: boolean;
+  lockout_attempts: number;
+  lockout_window_minutes: number;
+  idle_timeout_minutes: number;
+  absolute_timeout_hours: number;
+  renewal_timeout_minutes: number;
+  remember_me_days: number;
+  cookie_name: string;
+  secure_cookie: boolean;
+  http_only_cookie: boolean;
+  same_site: 'lax' | 'strict' | 'none';
+  policy_refresh_seconds: number;
+  warn_before_expire_minutes: number;
+  rotate_after_login: boolean;
+  audit_logging: boolean;
+  redact_session_id: boolean;
+}
+
+export interface AuthSessionApiResponse {
+  authenticated: boolean;
+  username: string;
+  session_mode: 'short' | 'long';
+  expires_in_seconds: number;
+  renewal_in_seconds: number;
+  policy_refresh_seconds: number;
+  message: string;
+}
+
+export async function getAuthPolicy() {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/auth/policy`);
+  if (!response.ok) throw await apiError(response, '登录策略加载失败');
+  return response.json() as Promise<AuthPolicyApiResponse>;
+}
+
+export async function getAuthSession() {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/auth/session`);
+  if (!response.ok) throw await apiError(response, '登录会话无效');
+  return response.json() as Promise<AuthSessionApiResponse>;
+}
+
+export async function loginAuth(username: string, password: string, sessionMode: 'short' | 'long') {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, session_mode: sessionMode }),
+  });
+  if (!response.ok) throw await apiError(response, '登录失败');
+  return response.json() as Promise<AuthSessionApiResponse>;
+}
+
+export async function renewAuthSession() {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/auth/renew`, { method: 'POST' });
+  if (!response.ok) throw await apiError(response, '会话续期失败');
+  return response.json() as Promise<AuthSessionApiResponse>;
+}
+
+export async function logoutAuth() {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/auth/logout`, { method: 'POST' });
+  if (!response.ok) throw await apiError(response, '退出登录失败');
 }
 
 export interface LocalRuntimeSettingsUpdate {
@@ -66,20 +181,17 @@ export interface LocalRuntimeSettings extends LocalRuntimeSettingsUpdate {
 }
 
 export async function getHealth() {
-  const response = await fetch(`${apiBaseUrl}/health`);
+  const response = await apiFetch(`${apiBaseUrl}/health/live`);
   if (!response.ok) {
     throw new Error('服务状态检查失败');
   }
   return response.json() as Promise<{
     status: string;
-    environment: string;
-    database: string;
-    redis_configured: boolean;
   }>;
 }
 
 export async function getBasemaps() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/basemaps`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/basemaps`);
   if (!response.ok) {
     throw new Error('底图配置加载失败');
   }
@@ -95,7 +207,7 @@ export async function getLayerFeatures(
 ) {
   const params = new URLSearchParams({ bbox, limit: String(limit) });
   if (workspaceId) params.set('workspace_id', String(workspaceId));
-  const response = await fetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features?${params}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features?${params}`, {
     signal,
   });
   if (!response.ok) {
@@ -116,7 +228,7 @@ export async function getLayerFeatureSummaries(
   const params = new URLSearchParams({ limit: '200' });
   if (workspaceId) params.set('workspace_id', String(workspaceId));
   if (cursor) params.set('cursor', cursor);
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/layers/${layerId}/feature-summaries?${params}`,
   );
   if (!response.ok) throw await apiError(response, '图斑列表加载失败');
@@ -131,7 +243,7 @@ export async function getLayerFeatureDetail(
   const params = new URLSearchParams();
   if (workspaceId) params.set('workspace_id', String(workspaceId));
   const query = params.size > 0 ? `?${params}` : '';
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/layers/${layerId}/features/${featureId}${query}`,
   );
   if (!response.ok) throw await apiError(response, '图斑详情加载失败');
@@ -146,7 +258,7 @@ export async function createSpatialAnalysis(payload: {
   unit: AnalysisUnit;
   scope: AnalysisScope;
 }) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/spatial-analyses`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/spatial-analyses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -156,7 +268,7 @@ export async function createSpatialAnalysis(payload: {
 }
 
 export async function getSpatialAnalysis(jobId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}`,
   );
   if (!response.ok) throw await apiError(response, '空间分析结果加载失败');
@@ -166,7 +278,7 @@ export async function getSpatialAnalysis(jobId: string) {
 export async function getSpatialAnalysisHits(jobId: string, cursor?: string | null) {
   const params = new URLSearchParams({ limit: '100', include_geometry: 'true' });
   if (cursor) params.set('cursor', cursor);
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}/hits?${params}`,
   );
   if (!response.ok) throw await apiError(response, '分析命中列表加载失败');
@@ -174,7 +286,7 @@ export async function getSpatialAnalysisHits(jobId: string, cursor?: string | nu
 }
 
 export async function cancelSpatialAnalysis(jobId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}/cancel`,
     { method: 'POST' },
   );
@@ -183,7 +295,7 @@ export async function cancelSpatialAnalysis(jobId: string) {
 }
 
 export async function exportSpatialAnalysis(jobId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/spatial-analyses/${encodeURIComponent(jobId)}/exports`,
     { method: 'POST' },
   );
@@ -192,7 +304,7 @@ export async function exportSpatialAnalysis(jobId: string) {
 }
 
 export async function downloadSpatialAnalysis(exportJobId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/spatial-analyses/exports/${encodeURIComponent(exportJobId)}/download`,
   );
   if (!response.ok) throw await apiError(response, '分析结果下载失败');
@@ -206,25 +318,25 @@ export async function downloadSpatialAnalysis(exportJobId: string) {
 }
 
 export async function getWorkspaces() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces`);
   if (!response.ok) throw await apiError(response, '工作空间列表加载失败');
   return response.json() as Promise<WorkspaceSummary[]>;
 }
 
 export async function getWorkspace(workspaceId: number) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`);
   if (!response.ok) throw await apiError(response, '工作空间加载失败');
   return response.json() as Promise<WorkspaceDetail>;
 }
 
 export async function getWorkspaceCatalog() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/catalog`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/catalog`);
   if (!response.ok) throw await apiError(response, '工作空间数据目录加载失败');
   return response.json() as Promise<WorkspaceCatalog>;
 }
 
 export async function createWorkspace(payload: WorkspaceWrite) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -234,7 +346,7 @@ export async function createWorkspace(payload: WorkspaceWrite) {
 }
 
 export async function updateWorkspace(workspaceId: number, payload: WorkspaceUpdate) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -244,14 +356,14 @@ export async function updateWorkspace(workspaceId: number, payload: WorkspaceUpd
 }
 
 export async function deleteWorkspace(workspaceId: number) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}`, {
     method: 'DELETE',
   });
   if (!response.ok) throw await apiError(response, '工作空间删除失败');
 }
 
 export async function exportWorkspace(workspaceId: number, includeRasters = false) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}/exports`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/${workspaceId}/exports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ include_rasters: includeRasters }),
@@ -263,7 +375,7 @@ export async function exportWorkspace(workspaceId: number, includeRasters = fals
 export async function previewWorkspacePackage(file: File) {
   const formData = new FormData();
   formData.append('package', file);
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/packages/preview`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/packages/preview`, {
     method: 'POST',
     body: formData,
   });
@@ -276,7 +388,7 @@ export async function importWorkspacePackage(
   strategy: 'copy' | 'replace',
   targetWorkspaceId?: number | null,
 ) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/workspaces/packages/imports`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/workspaces/packages/imports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -290,7 +402,7 @@ export async function importWorkspacePackage(
 }
 
 export async function downloadWorkspacePackage(jobId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/workspaces/packages/exports/${encodeURIComponent(jobId)}/download`,
   );
   if (!response.ok) throw await apiError(response, '工作空间包下载失败');
@@ -301,14 +413,14 @@ export async function downloadWorkspacePackage(jobId: string) {
 }
 
 export async function getLayers() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/layers`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/layers`);
   if (!response.ok) throw await apiError(response, '图层列表加载失败');
   return response.json() as Promise<BackendLayerSummary[]>;
 }
 
 export async function getRasterHistogram(layerId: number, band: number, bins = 96) {
   const params = new URLSearchParams({ band: String(band), bins: String(bins) });
-  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/histogram?${params}`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/histogram?${params}`);
   if (!response.ok) throw await apiError(response, '栅格直方图加载失败');
   return response.json() as Promise<RasterHistogram>;
 }
@@ -320,13 +432,13 @@ export async function getRasterPixel(
   crs = 'EPSG:3857',
 ) {
   const params = new URLSearchParams({ x: String(x), y: String(y), crs });
-  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/pixel?${params}`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/pixel?${params}`);
   if (!response.ok) throw await apiError(response, '像元查询失败');
   return response.json() as Promise<RasterPixel>;
 }
 
 export async function updateRasterStyle(layerId: number, style: RasterStyle) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/style`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/style`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(style),
@@ -341,7 +453,7 @@ export async function deriveRaster(
   formula: RasterFormulaNode,
   style?: RasterStyle,
 ) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/derive`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/rasters/${layerId}/derive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, formula, style }),
@@ -351,7 +463,7 @@ export async function deriveRaster(
 }
 
 export async function exportRasters(layerIds: number[]) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/rasters/exports`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/rasters/exports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ format: 'cog', layer_ids: layerIds }),
@@ -361,7 +473,7 @@ export async function exportRasters(layerIds: number[]) {
 }
 
 export async function downloadRasterExport(jobId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/rasters/exports/${encodeURIComponent(jobId)}/download`,
   );
   if (!response.ok) throw await apiError(response, '栅格成果下载失败');
@@ -372,7 +484,7 @@ export async function downloadRasterExport(jobId: string) {
 }
 
 export async function createManualLayer(name?: string) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/layers`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/layers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, geometry_type: 'Polygon' }),
@@ -386,7 +498,7 @@ export async function createLayerFeature(
   coordinates: number[][][],
   properties: Record<string, unknown> = {},
 ) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -395,36 +507,73 @@ export async function createLayerFeature(
     }),
   });
   if (!response.ok) throw await apiError(response, '图斑保存失败');
+  return response.json() as Promise<MapFeatureMutationResponse>;
+}
+
+export interface MapFeatureMutationResponse {
+  feature: {
+    id: number;
+    layer_id: number;
+    geometry: { type: 'Polygon'; coordinates: number[][][] };
+    properties: Record<string, unknown>;
+    revision: number;
+  };
+  layer: BackendLayerSummary;
+}
+
+export async function updateLayerFeature(
+  layerId: string,
+  featureId: number,
+  coordinates: number[][][],
+  properties: Record<string, unknown>,
+  revision: number,
+) {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features/${featureId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      geometry: { type: 'Polygon', coordinates },
+      properties,
+      revision,
+    }),
+  });
+  if (!response.ok) throw await apiError(response, '图斑修改失败');
+  return response.json() as Promise<MapFeatureMutationResponse>;
+}
+
+export async function deleteLayerFeature(layerId: string, featureId: number, revision: number) {
+  const params = new URLSearchParams({ revision: String(revision) });
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/v1/layers/${layerId}/features/${featureId}?${params}`,
+    { method: 'DELETE' },
+  );
+  if (!response.ok) throw await apiError(response, '图斑删除失败');
   return response.json() as Promise<{
-    feature: {
-      id: number;
-      geometry: { type: 'Polygon'; coordinates: number[][][] };
-      properties: Record<string, unknown>;
-    };
+    deleted_feature_id: number;
     layer: BackendLayerSummary;
   }>;
 }
 
 export async function getJobs() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/jobs`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/jobs`);
   if (!response.ok) throw await apiError(response, '任务列表加载失败');
   return response.json() as Promise<ImportJob[]>;
 }
 
 export async function getJob(jobId: string) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/jobs/${encodeURIComponent(jobId)}`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/jobs/${encodeURIComponent(jobId)}`);
   if (!response.ok) throw await apiError(response, '任务状态加载失败');
   return response.json() as Promise<ImportJob>;
 }
 
 export async function getImportSettings() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/import-sources`);
   if (!response.ok) throw await apiError(response, '导入数据源加载失败');
   return response.json() as Promise<ImportSettings>;
 }
 
 export async function createImportSource(payload: ImportSourceWrite) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/import-sources`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -434,7 +583,7 @@ export async function createImportSource(payload: ImportSourceWrite) {
 }
 
 export async function updateImportSource(sourceId: string, payload: ImportSourceWrite) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources/${sourceId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/import-sources/${sourceId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -444,14 +593,14 @@ export async function updateImportSource(sourceId: string, payload: ImportSource
 }
 
 export async function deleteImportSource(sourceId: string) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources/${sourceId}`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/import-sources/${sourceId}`, {
     method: 'DELETE',
   });
   if (!response.ok) throw await apiError(response, '数据源删除失败');
 }
 
 export async function testImportSource(sourceId: string, password?: string) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources/${sourceId}/test`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/import-sources/${sourceId}/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: password || null }),
@@ -467,7 +616,7 @@ export async function updateImportOptions(
   rasterScratchPath: string,
   rasterQuotaGb: number,
 ) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/import-sources/options`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/import-sources/options`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -483,7 +632,7 @@ export async function updateImportOptions(
 }
 
 export async function syncImportSource(sourceId: string) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/imports/sync`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/imports/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source_id: sourceId }),
@@ -493,7 +642,7 @@ export async function syncImportSource(sourceId: string) {
 }
 
 export async function getImportCatalog(sourceId: string) {
-  const response = await fetch(
+  const response = await apiFetch(
     `${apiBaseUrl}/api/v1/imports/catalog?${new URLSearchParams({ source_id: sourceId })}`,
   );
   if (!response.ok) throw await apiError(response, '导入目录加载失败');
@@ -505,7 +654,7 @@ export async function importDatasets(
   datasetIds: string[],
   crsOverrides: Record<string, string>,
 ) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/imports`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/imports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -519,13 +668,13 @@ export async function importDatasets(
 }
 
 export async function resumeImportJob(jobId: string) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/imports/${jobId}/resume`, { method: 'POST' });
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/imports/${jobId}/resume`, { method: 'POST' });
   if (!response.ok) throw await apiError(response, '任务恢复失败');
   return response.json() as Promise<ImportJob>;
 }
 
 export async function getLocalRuntimeSettings() {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/local`);
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/local`);
   if (!response.ok) {
     throw new Error('本地配置加载失败');
   }
@@ -533,7 +682,7 @@ export async function getLocalRuntimeSettings() {
 }
 
 export async function updateLocalRuntimeSettings(payload: LocalRuntimeSettingsUpdate) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/settings/local`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/settings/local`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -568,7 +717,7 @@ function filenameFromDisposition(disposition: string | null, fallback: string) {
 }
 
 export async function exportLayers(format: ExportFormat, layerIds: number[]) {
-  const response = await fetch(`${apiBaseUrl}/api/v1/exports`, {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/exports`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ format, layer_ids: layerIds }),

@@ -83,6 +83,82 @@ def feature(layer_id: int, geometry, feature_id: int, name: str) -> MapFeature:
 
 
 @pytest.mark.asyncio
+async def test_postgis_feature_update_and_delete_recompute_layer_aggregate(
+    postgis_session: AsyncSession,
+) -> None:
+    session = postgis_session
+    project = Project(
+        id=80,
+        name="编辑聚合测试",
+        default_basemap="amap-vector",
+        current_view={},
+    )
+    layer = Layer(
+        id=80,
+        project_id=project.id,
+        name="手工图斑",
+        source_type="manual",
+        geometry_type="Polygon",
+        feature_count=2,
+        crs="EPSG:3857",
+        bounds={"min_x": 0, "min_y": 0, "max_x": 30, "max_y": 30},
+        style={},
+        fields=[],
+        performance={},
+        visible=True,
+        locked=False,
+        opacity=1,
+    )
+    first = feature(
+        layer.id,
+        Polygon([(0, 0), (10, 0), (10, 10), (0, 0)]),
+        801,
+        "待移动",
+    )
+    second = feature(
+        layer.id,
+        Polygon([(20, 20), (30, 20), (30, 30), (20, 20)]),
+        802,
+        "保留边界",
+    )
+    session.add(project)
+    session.add(layer)
+    session.add_all([first, second])
+    await session.commit()
+    repository = MapFeatureRepository(session)
+    moved = Polygon([(100, 100), (110, 100), (110, 110), (100, 100)])
+
+    item, summary = await repository.update_polygon_feature(
+        layer,
+        first,
+        moved,
+        {"名称": "已移动"},
+    )
+
+    assert item.revision == 2
+    assert summary.feature_count == 2
+    assert summary.bounds == {
+        "min_x": 20.0,
+        "min_y": 20.0,
+        "max_x": 110.0,
+        "max_y": 110.0,
+    }
+
+    after_first_delete = await repository.delete_polygon_feature(layer, second)
+    assert after_first_delete.feature_count == 1
+    assert after_first_delete.bounds == {
+        "min_x": 100.0,
+        "min_y": 100.0,
+        "max_x": 110.0,
+        "max_y": 110.0,
+    }
+
+    empty = await repository.delete_polygon_feature(layer, first)
+    assert empty.feature_count == 0
+    assert empty.bounds == {}
+
+
+@pytest.mark.asyncio
 async def test_postgis_analysis_covers_point_line_polygon_workspace_filter_and_stale(
     postgis_session: AsyncSession,
 ) -> None:

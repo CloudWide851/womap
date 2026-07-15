@@ -166,15 +166,19 @@ export interface JobState {
 }
 
 export interface LoginSecurityPolicy {
+  enabled: boolean;
   username: string;
+  credentialConfigured: boolean;
   passwordMinLength: number;
   passwordMaxLength: number;
+  blockCommonPasswords: boolean;
   lockoutAttempts: number;
   lockoutWindowMinutes: number;
   idleTimeoutMinutes: number;
   absoluteTimeoutHours: number;
   renewalTimeoutMinutes: number;
   rememberMeDays: number;
+  cookieName: string;
   policyRefreshSeconds: number;
   warnBeforeExpireMinutes: number;
   secureCookie: boolean;
@@ -182,6 +186,7 @@ export interface LoginSecurityPolicy {
   sameSite: 'lax' | 'strict' | 'none';
   rotateAfterLogin: boolean;
   auditLogging: boolean;
+  redactSessionId: boolean;
 }
 
 export interface AuthSessionState {

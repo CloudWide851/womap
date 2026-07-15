@@ -3,6 +3,8 @@ import Interaction from 'ol/interaction/Interaction';
 
 import type { WorkspaceLayer } from '../../types/workspace';
 
+export const SNAP_PIXEL_TOLERANCE = 10;
+
 export type DrawingTargetResolution =
   | { kind: 'create' }
   | { kind: 'ready'; layer: WorkspaceLayer }
@@ -20,6 +22,17 @@ export function resolveDrawingTarget(
     return { kind: 'blocked', message: '目标图层不是 Polygon/Mixed，请选择面图层。' };
   }
   return { kind: 'ready', layer: selected };
+}
+
+export function snapEligibleLayers(layers: WorkspaceLayer[]) {
+  return layers.filter(
+    (layer) =>
+      layer.source === 'backend' &&
+      layer.kind !== 'raster' &&
+      layer.geometryType !== 'Raster' &&
+      layer.visible &&
+      !layer.locked,
+  );
 }
 
 export function createFirstVertexInteraction(

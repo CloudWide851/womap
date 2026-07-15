@@ -1,4 +1,5 @@
 from pathlib import Path, PureWindowsPath
+import logging
 from typing import Any
 from uuid import uuid4
 
@@ -27,6 +28,20 @@ from app.features.settings.credentials import (
 )
 from app.shared.config import EXAMPLE_CONFIG_PATH, LOCAL_CONFIG_PATH, get_settings, load_settings
 
+logger = logging.getLogger("womap.settings")
+
+
+def _config_source_label(config_source: str) -> str:
+    try:
+        resolved = Path(config_source).resolve()
+    except OSError:
+        return "unknown"
+    if resolved == LOCAL_CONFIG_PATH.resolve():
+        return "local"
+    if resolved == EXAMPLE_CONFIG_PATH.resolve():
+        return "example"
+    return "unknown"
+
 
 class SettingsService:
     def __init__(
@@ -45,7 +60,7 @@ class SettingsService:
         auth = settings.auth
         return RuntimeSettings(
             environment=settings.app.environment,
-            config_source=settings.config_source,
+            config_source=_config_source_label(settings.config_source),
             database=settings.database.kind,
             postgis_target=settings.database.uses_postgis,
             redis_configured=settings.redis.configured,
@@ -85,8 +100,8 @@ class SettingsService:
         )
         settings = load_settings(config_path)
         return LocalRuntimeSettings(
-            config_source=settings.config_source,
-            local_config_path=str(self.local_config_path),
+            config_source="local" if config_path == self.local_config_path else "example",
+            local_config_path="config/settings.local.yaml",
             server=LocalServerSettings(host=settings.server.host, port=settings.server.port),
             frontend=LocalFrontendSettings(
                 dev_server=LocalFrontendDevServerSettings(
@@ -208,7 +223,7 @@ class SettingsService:
             root = Path(source.root_path).expanduser()
             if not root.is_dir():
                 raise ValueError("本地数据目录不存在或不可访问。")
-            return ImportSourceTestResponse(ok=True, message=f"本地目录可访问：{root}")
+            return ImportSourceTestResponse(ok=True, message="本地目录可访问。")
 
         credential = password or self.credential_store.get_password(
             source.id, self._credential_username(source.model_dump())
@@ -228,7 +243,12 @@ class SettingsService:
             )
             list(smbclient.scandir(root))
         except Exception as exc:
-            raise ValueError(f"SMB 连接失败：{exc}") from exc
+            logger.warning(
+                "import_source_test_failed source_id=%s error_type=%s",
+                source.id,
+                type(exc).__name__,
+            )
+            raise ValueError("SMB 连接失败，请检查地址、网络和凭据。") from exc
         return ImportSourceTestResponse(ok=True, message="SMB 连接成功。")
 
     def _read_edit_base(self) -> dict[str, Any]:

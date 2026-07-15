@@ -1,0 +1,83 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: womap
+          POSTGRES_USER: womap
+          POSTGRES_PASSWORD: replace-with-local-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U womap -d womap"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check app tests migrations
+      - run: uv run python -m compileall app migrations
+      - run: uv run alembic heads
+      - run: uv run alembic upgrade head
+      - run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: uv sync --frozen
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - run: uv run python scripts/security_scan.py
+      - run: uv run python scripts/generate_sbom.py --output artifacts/womap.cdx.json
+      - run: uv export --quiet --frozen --no-dev --no-emit-project --output-file /tmp/womap-requirements.txt
+      - run: uvx --from pip-audit==2.9.0 pip-audit --strict --disable-pip --requirement /tmp/womap-requirements.txt
+      - run: uv run python scripts/audit_pnpm.py --severity high
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: womap-cyclonedx-sbom
+          path: artifacts/womap.cdx.json
+          if-no-files-found: error
