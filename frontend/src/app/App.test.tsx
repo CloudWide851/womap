@@ -44,13 +44,30 @@ describe('App', () => {
   it('starts with a guided local login surface', async () => {
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '进入工作台' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '设置本地密码' })).toBeInTheDocument();
     expect(screen.getByAltText('WOMAP')).toBeInTheDocument();
     expect(screen.queryByLabelText('测绘扫描状态')).not.toBeInTheDocument();
     expect(screen.getByText('默认账号 local-admin')).toBeInTheDocument();
-    expect(screen.getByText('密码不少于 15 位即可进入本地工作台')).toBeInTheDocument();
+    expect(screen.getByText('设置 15-128 位本机专用密码')).toBeInTheDocument();
+    expect(screen.getByText(/系统只保存加盐后的不可逆哈希/)).toBeInTheDocument();
     expect(screen.queryByLabelText('工作台预览')).not.toBeInTheDocument();
     expect(screen.queryByText('本地安全门禁')).not.toBeInTheDocument();
+  });
+
+  it('keeps the readonly first-run account aligned with the loaded policy', async () => {
+    render(<App />);
+    const username = await screen.findByLabelText('登录账号');
+
+    useAuthStore.setState({
+      policy: {
+        ...useAuthStore.getState().policy,
+        username: 'custom-local-admin',
+        credentialConfigured: false,
+      },
+    });
+
+    await waitFor(() => expect(username).toHaveValue('custom-local-admin'));
+    expect(username).toHaveAttribute('readonly');
   });
 
   it('shows login security controls before entering the workspace', async () => {
@@ -59,18 +76,19 @@ describe('App', () => {
     expect(await screen.findByLabelText('登录账号')).toBeInTheDocument();
     expect(screen.getByLabelText('登录账号')).toBeInTheDocument();
     expect(screen.getByLabelText('登录密码')).toBeInTheDocument();
+    expect(screen.getByLabelText('确认登录密码')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '短会话 30分' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
     expect(screen.getByRole('button', { name: '长会话 7天' })).toBeInTheDocument();
-    expect(screen.getByLabelText('登录工作台')).toBeDisabled();
+    expect(screen.getByLabelText('设置本地密码并进入工作台')).toBeDisabled();
     expect(screen.getByText('输入至少 15 位密码')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('登录密码'), {
       target: { value: 'short' },
     });
-    expect(screen.getByLabelText('登录工作台')).toBeDisabled();
+    expect(screen.getByLabelText('设置本地密码并进入工作台')).toBeDisabled();
     expect(screen.getByText('输入至少 15 位密码')).toBeInTheDocument();
   });
 

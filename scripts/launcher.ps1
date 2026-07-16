@@ -504,7 +504,25 @@ catch {
     throw ("{0} failed to stay running" -f $Name)
 }
 
+function Invoke-ApiMigrations {
+    Push-Location -LiteralPath $Script:Root
+    try {
+        & uv run alembic upgrade head
+        if ($LASTEXITCODE -ne 0) {
+            throw "Database migration failed; API startup was cancelled."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Start-Api {
+    param(
+        [scriptblock]$MigrationAction = { Invoke-ApiMigrations }
+    )
+
+    & $MigrationAction
     Start-ManagedProcess `
         -Name "api" `
         -WorkingDirectory $Script:Root `

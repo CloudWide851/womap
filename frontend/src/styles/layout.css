@@ -53,7 +53,7 @@
 
 .workbench {
   display: grid;
-  grid-template-rows: 50px minmax(0, 1fr) 26px;
+  grid-template-rows: 52px minmax(0, 1fr) 28px;
   min-width: 0;
 }
 
@@ -846,7 +846,7 @@
   color: var(--color-muted);
   font-size: 0.63rem;
   font-weight: 720;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.025em;
 }
 
 .map-toolbox-popup-header strong {
@@ -1631,6 +1631,17 @@
   line-height: 1.05;
 }
 
+.login-setup-note {
+  margin: -2px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 14%, var(--color-line));
+  border-radius: 9px;
+  color: var(--color-muted);
+  background: color-mix(in oklch, var(--color-primary-soft) 38%, var(--color-surface));
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
 .security-emblem {
   display: grid;
   width: 42px;
@@ -2294,7 +2305,7 @@
   color: var(--color-primary);
   font-size: 0.66rem;
   font-weight: 760;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.025em;
 }
 
 .getting-started-heading h2 {
@@ -3420,5 +3431,206 @@
   .import-dataset-row,
   .import-source-row {
     transition: none !important;
+  }
+}
+
+/* Restrained macOS material treatment for the map workbench chrome. */
+.workbench {
+  background: var(--color-canvas);
+}
+
+.top-toolbar,
+.status-bar {
+  border-color: var(--material-border);
+  background: var(--material-opaque);
+  box-shadow:
+    inset 0 1px 0 oklch(100% 0 0 / 0.92),
+    0 8px 24px oklch(24% 0.03 265 / 0.045);
+}
+
+.top-toolbar {
+  z-index: 10;
+  gap: 10px;
+  padding-inline: 12px;
+}
+
+.toolbar-cluster {
+  min-height: 34px;
+  padding: 2px 3px;
+  border-color: color-mix(in oklch, var(--material-border) 72%, var(--color-line));
+  border-radius: 9px;
+  background: oklch(100% 0 0 / 0.72);
+  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.88);
+}
+
+.toolbar-cluster-session {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.toolbar-select .ant-select-selector,
+.toolbar-workspace-entry.ant-btn,
+.tool-icon-button.ant-btn,
+.session-chip {
+  border-radius: 8px !important;
+}
+
+.activity-rail,
+.resource-dock,
+.context-inspector {
+  border-color: var(--material-border);
+  border-radius: 12px;
+  background: var(--material-opaque);
+  box-shadow:
+    var(--shadow-panel),
+    inset 0 1px 0 oklch(100% 0 0 / 0.9);
+}
+
+.activity-rail {
+  padding: 8px 5px;
+}
+
+.activity-rail .ant-btn {
+  border-radius: 9px;
+}
+
+.dock-header {
+  min-height: 40px;
+  padding: 10px 12px 9px;
+  border-color: color-mix(in oklch, var(--material-border) 72%, var(--color-line));
+  background: var(--material-opaque);
+}
+
+.dock-header span,
+.panel-heading h2,
+.section-title {
+  letter-spacing: -0.01em;
+}
+
+.dock-header span {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.dock-header small,
+.panel-heading p {
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.resource-dock > .panel-section,
+.context-inspector > .panel-section {
+  padding: 11px 12px;
+}
+
+.map-shell {
+  border-color: color-mix(in oklch, var(--material-border) 62%, var(--color-line));
+  border-radius: 12px;
+  box-shadow:
+    var(--shadow-map),
+    inset 0 0 0 1px oklch(100% 0 0 / 0.76);
+}
+
+.map-toolbox-trigger.ant-btn,
+.map-toolbox-popup,
+.map-floating-strip {
+  border-color: var(--material-border);
+  background: var(--material-opaque);
+  box-shadow:
+    0 14px 34px oklch(24% 0.035 265 / 0.12),
+    inset 0 1px 0 oklch(100% 0 0 / 0.9);
+}
+
+.map-toolbox-trigger.ant-btn,
+.map-floating-strip {
+  border-radius: 10px;
+}
+
+.map-toolbox-popup {
+  border-radius: 12px;
+}
+
+.status-bar,
+.status-item,
+.save-state,
+.session-chip,
+.map-floating-strip,
+.coordinate-result {
+  font-variant-numeric: tabular-nums;
+}
+
+.status-bar {
+  gap: 8px;
+  padding-inline: 12px;
+  font-size: 0.68rem;
+}
+
+.status-item,
+.save-state {
+  border-radius: 7px;
+}
+
+.tool-icon-button.ant-btn:focus-visible,
+.activity-rail .ant-btn:focus-visible,
+.map-toolbox-trigger.ant-btn:focus-visible,
+.map-feature-trigger:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--color-primary) 76%, white);
+  outline-offset: 2px;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .top-toolbar,
+  .status-bar {
+    background: var(--material-chrome);
+    -webkit-backdrop-filter: blur(18px) saturate(118%);
+    backdrop-filter: blur(18px) saturate(118%);
+  }
+
+  .activity-rail,
+  .resource-dock,
+  .context-inspector {
+    background: var(--material-panel);
+    -webkit-backdrop-filter: blur(20px) saturate(116%);
+    backdrop-filter: blur(20px) saturate(116%);
+  }
+
+  .dock-header {
+    background: oklch(100% 0 0 / 0.68);
+  }
+
+  .map-toolbox-trigger.ant-btn,
+  .map-toolbox-popup,
+  .map-floating-strip {
+    background: var(--material-floating);
+    -webkit-backdrop-filter: blur(16px) saturate(118%);
+    backdrop-filter: blur(16px) saturate(118%);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .top-toolbar,
+  .status-bar,
+  .activity-rail,
+  .resource-dock,
+  .context-inspector,
+  .dock-header,
+  .map-toolbox-trigger.ant-btn,
+  .map-toolbox-popup,
+  .map-floating-strip {
+    background: var(--material-opaque) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .resource-dock,
+  .context-inspector {
+    border-radius: 14px 14px 10px 10px;
+  }
+
+  .activity-rail {
+    border-radius: 11px;
   }
 }

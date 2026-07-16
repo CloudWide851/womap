@@ -1,5 +1,5 @@
 import { LockKeyhole, ShieldCheck, TimerReset } from 'lucide-react';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 import womapLogo from '../../../logo.svg';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -11,28 +11,44 @@ export function LoginPage() {
   const serviceStatus = useAuthStore((state) => state.serviceStatus);
   const submitting = useAuthStore((state) => state.submitting);
   const login = useAuthStore((state) => state.login);
+  const setup = useAuthStore((state) => state.setup);
   const [username, setUsername] = useState(policy.username);
   const [password, setPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [mode, setMode] = useState<SessionMode>('short');
+  const firstRun = !policy.credentialConfigured;
+
+  useEffect(() => {
+    if (firstRun) setUsername(policy.username);
+  }, [firstRun, policy.username]);
 
   const passwordScore = useMemo(() => {
     return Math.min(100, Math.round((password.length / policy.passwordMinLength) * 100));
   }, [password.length, policy.passwordMinLength]);
-  const canLogin =
+  const canSubmit =
     serviceStatus === 'ready' &&
     !submitting &&
     username.trim().length > 0 &&
-    password.length >= policy.passwordMinLength;
+    password.length >= policy.passwordMinLength &&
+    (!firstRun || passwordConfirmation.length > 0);
   const submitLabel = submitting
-    ? '正在验证…'
+    ? firstRun
+      ? '正在设置…'
+      : '正在验证…'
     : serviceStatus === 'unavailable'
       ? '本地服务未连接'
-      : canLogin
-        ? '进入工作台'
+      : canSubmit
+        ? firstRun
+          ? '设置密码并进入'
+          : '进入工作台'
         : `输入至少 ${policy.passwordMinLength} 位密码`;
 
   const submitLogin = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (firstRun) {
+      void setup({ username, password, passwordConfirmation, mode });
+      return;
+    }
     void login({ username, password, mode });
   };
 
@@ -47,8 +63,14 @@ export function LoginPage() {
           <span className="security-emblem">
             <LockKeyhole size={19} aria-hidden="true" />
           </span>
-          <h1>进入工作台</h1>
+          <h1>{firstRun ? '设置本地密码' : '进入工作台'}</h1>
         </div>
+
+        {firstRun && (
+          <p className="login-setup-note">
+            首次使用请设置本机专用密码。系统只保存加盐后的不可逆哈希。
+          </p>
+        )}
 
         <form className="login-form" onSubmit={submitLogin}>
           <label>
@@ -60,6 +82,7 @@ export function LoginPage() {
               value={username}
               autoComplete="username"
               onChange={(event) => setUsername(event.target.value)}
+              readOnly={firstRun}
               disabled={submitting}
             />
             <em>默认账号 local-admin</em>
@@ -72,14 +95,37 @@ export function LoginPage() {
               aria-label="登录密码"
               type="password"
               value={password}
-              autoComplete="current-password"
+              autoComplete={firstRun ? 'new-password' : 'current-password'}
               minLength={policy.passwordMinLength}
               maxLength={policy.passwordMaxLength}
               onChange={(event) => setPassword(event.target.value)}
               disabled={submitting}
             />
-            <em>密码不少于 {policy.passwordMinLength} 位即可进入本地工作台</em>
+            <em>
+              {firstRun
+                ? `设置 ${policy.passwordMinLength}-${policy.passwordMaxLength} 位本机专用密码`
+                : `密码不少于 ${policy.passwordMinLength} 位即可进入本地工作台`}
+            </em>
           </label>
+
+          {firstRun && (
+            <label>
+              <span>确认密码</span>
+              <input
+                id="login-password-confirmation"
+                name="password-confirmation"
+                aria-label="确认登录密码"
+                type="password"
+                value={passwordConfirmation}
+                autoComplete="new-password"
+                minLength={policy.passwordMinLength}
+                maxLength={policy.passwordMaxLength}
+                onChange={(event) => setPasswordConfirmation(event.target.value)}
+                disabled={submitting}
+              />
+              <em>再次输入，避免首次密码设置错误</em>
+            </label>
+          )}
 
           <div className="password-meter" aria-label={`密码长度 ${password.length}`}>
             <span style={{ transform: `scaleX(${passwordScore / 100})` }} />
@@ -111,8 +157,8 @@ export function LoginPage() {
           <button
             className="login-submit"
             type="submit"
-            disabled={!canLogin}
-            aria-label="登录工作台"
+            disabled={!canSubmit}
+            aria-label={firstRun ? '设置本地密码并进入工作台' : '登录工作台'}
             aria-busy={submitting}
           >
             <LockKeyhole size={17} aria-hidden="true" />

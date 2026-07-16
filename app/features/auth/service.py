@@ -1,6 +1,6 @@
-import base64
 import hashlib
 import hmac
+import ipaddress
 import logging
 import secrets
 from dataclasses import dataclass
@@ -8,33 +8,29 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 
+from app.features.auth.credentials import (
+    AuthCredentialAlreadyConfiguredError,
+    AuthCredentialWriteError,
+    AuthCredentialWriterProtocol,
+    LocalAuthCredentialWriter,
+    verify_password,
+)
 from app.features.auth.repository import AuthRepository
-from app.features.auth.schemas import AuthPolicyResponse, LoginRequest, LoginResponse
+from app.features.auth.schemas import AuthPolicyResponse, AuthSetupRequest, LoginRequest, LoginResponse
 from app.features.auth.throttle import LoginThrottle, login_throttle
 from app.models.auth_session import AuthSession
 from app.shared.config import AuthSettings, get_settings
 
 logger = logging.getLogger("womap.auth")
 
-
-def _verify_pbkdf2_sha256(password: str, encoded_hash: str) -> bool:
-    try:
-        algorithm, iterations_text, salt, digest = encoded_hash.split("$", maxsplit=3)
-        iterations = int(iterations_text)
-    except ValueError:
-        return False
-
-    if algorithm != "pbkdf2_sha256" or iterations < 100_000:
-        return False
-
-    candidate = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        iterations,
-    )
-    candidate_digest = base64.b64encode(candidate).decode("ascii").rstrip("=")
-    return hmac.compare_digest(candidate_digest, digest)
+_COMMON_PASSWORDS = frozenset(
+    {
+        "123456789012345",
+        "adminadminadminadmin",
+        "passwordpassword",
+        "qwertyuiopasdfgh",
+    }
+)
 
 
 def hash_secret(value: str) -> str:
@@ -60,12 +56,83 @@ class AuthService:
         self,
         repository: AuthRepository,
         throttle: LoginThrottle | None = None,
+        credential_writer: AuthCredentialWriterProtocol | None = None,
     ) -> None:
         self.repository = repository
         self.throttle = throttle or login_throttle
+        self.credential_writer = credential_writer or LocalAuthCredentialWriter()
 
     def get_policy(self) -> AuthPolicyResponse:
         return self._build_policy(get_settings().auth)
+
+    async def setup(
+        self,
+        payload: AuthSetupRequest,
+        *,
+        client_host: str,
+        origin: str | None,
+        request_id: str,
+    ) -> SessionIssue:
+        settings = get_settings()
+        auth = settings.auth
+        if not auth.enabled:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="本地登录未启用。")
+        if not self._is_loopback(client_host):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="首次设置本地密码只能在本机完成。",
+            )
+        if origin and origin not in settings.server.cors_origins:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="请求来源不受信任。",
+            )
+
+        policy = auth.password_policy
+        if len(payload.password) < policy.min_length or len(payload.password) > policy.max_length:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="登录密码长度不符合当前安全策略。",
+            )
+        if policy.block_common_passwords and payload.password.strip().casefold() in _COMMON_PASSWORDS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该密码过于常见，请使用更难猜测的密码。",
+            )
+        if not hmac.compare_digest(payload.password, payload.password_confirmation):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="两次输入的密码不一致。",
+            )
+
+        local_user = auth.local_user
+        if not hmac.compare_digest(payload.username, local_user.username):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="本地登录账号不匹配。",
+            )
+        if local_user.password_configured:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="本地登录凭据已经配置，请直接登录。",
+            )
+
+        try:
+            self.credential_writer.configure(local_user.username, payload.password)
+        except AuthCredentialAlreadyConfiguredError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="本地登录凭据已经配置，请直接登录。",
+            ) from exc
+        except AuthCredentialWriteError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+
+        issue = await self._issue(local_user.username, payload.session_mode, get_settings().auth)
+        self._audit("credential_initialized", local_user.username, request_id)
+        return issue
 
     async def login(
         self,
@@ -104,7 +171,7 @@ class AuthService:
             )
 
         username_matches = hmac.compare_digest(payload.username, local_user.username)
-        password_matches = _verify_pbkdf2_sha256(payload.password, local_user.password_hash)
+        password_matches = verify_password(payload.password, local_user.password_hash)
         if not username_matches or not password_matches:
             self.throttle.record_failure(
                 client_key,
@@ -223,6 +290,13 @@ class AuthService:
             audit_logging=auth.audit.log_login_events,
             redact_session_id=auth.audit.redact_session_id,
         )
+
+    @staticmethod
+    def _is_loopback(host: str) -> bool:
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
 
     @staticmethod
     def _audit(event: str, username: str, request_id: str) -> None:

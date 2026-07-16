@@ -36,6 +36,10 @@ class LoginRequest(BaseModel):
     session_mode: SessionMode = "short"
 
 
+class AuthSetupRequest(LoginRequest):
+    password_confirmation: str = Field(min_length=1, max_length=256)
+
+
 class LoginResponse(BaseModel):
     authenticated: bool
     username: str

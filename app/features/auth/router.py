@@ -4,8 +4,14 @@ from fastapi import APIRouter, Depends, Request, Response
 
 from app.features.auth.cookies import clear_auth_cookies, set_auth_cookies
 from app.features.auth.dependencies import AuthPrincipal, get_auth_service, require_csrf, require_session
-from app.features.auth.schemas import AuthPolicyResponse, LoginRequest, LoginResponse, SessionResponse
-from app.features.auth.service import AuthService
+from app.features.auth.schemas import (
+    AuthPolicyResponse,
+    AuthSetupRequest,
+    LoginRequest,
+    LoginResponse,
+    SessionResponse,
+)
+from app.features.auth.service import AuthService, SessionIssue
 from app.shared.config import get_settings
 
 router = APIRouter()
@@ -18,6 +24,16 @@ def _request_id(request: Request) -> str:
 def _client_key(request: Request) -> str:
     host = request.client.host if request.client else "unknown"
     return hashlib.sha256(host.encode("utf-8")).hexdigest()
+
+
+def _set_issue_cookies(response: Response, issue: SessionIssue) -> None:
+    set_auth_cookies(
+        response,
+        session_token=issue.session_token,
+        csrf_token=issue.csrf_token,
+        session=issue.response,
+        settings=get_settings().auth.session,
+    )
 
 
 @router.get("/policy", response_model=AuthPolicyResponse)
@@ -37,13 +53,24 @@ async def login(
         client_key=_client_key(request),
         request_id=_request_id(request),
     )
-    set_auth_cookies(
-        response,
-        session_token=issue.session_token,
-        csrf_token=issue.csrf_token,
-        session=issue.response,
-        settings=get_settings().auth.session,
+    _set_issue_cookies(response, issue)
+    return issue.response
+
+
+@router.post("/setup", response_model=LoginResponse)
+async def setup(
+    payload: AuthSetupRequest,
+    request: Request,
+    response: Response,
+    service: AuthService = Depends(get_auth_service),
+) -> LoginResponse:
+    issue = await service.setup(
+        payload,
+        client_host=request.client.host if request.client else "unknown",
+        origin=request.headers.get("origin"),
+        request_id=_request_id(request),
     )
+    _set_issue_cookies(response, issue)
     return issue.response
 
 
@@ -76,13 +103,7 @@ async def renew_auth_session(
     if principal.session is None:
         return await get_auth_session(principal, service)
     issue = await service.renew(principal.session, _request_id(request))
-    set_auth_cookies(
-        response,
-        session_token=issue.session_token,
-        csrf_token=issue.csrf_token,
-        session=issue.response,
-        settings=get_settings().auth.session,
-    )
+    _set_issue_cookies(response, issue)
     return SessionResponse.model_validate(issue.response.model_dump())
 
 

@@ -1,8 +1,10 @@
 :root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI",
+    "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
   --color-ink: oklch(19% 0.035 260);
   --color-muted: oklch(42% 0.03 265);
   --color-subtle: oklch(58% 0.022 265);
-  --color-canvas: #ffffff;
+  --color-canvas: oklch(98.2% 0.005 265);
   --color-canvas-warm: oklch(98.6% 0.006 82);
   --color-canvas-cool: oklch(98.2% 0.008 265);
   --color-surface: #ffffff;
@@ -27,8 +29,13 @@
   --surface-panel-alt: oklch(97.6% 0.006 265);
   --surface-map: oklch(95.2% 0.014 258);
   --surface-map-line: oklch(54% 0.058 268 / 0.22);
-  --shadow-panel: 0 6px 16px oklch(24% 0.03 265 / 0.04);
-  --shadow-map: 0 12px 32px oklch(24% 0.035 265 / 0.08);
+  --material-chrome: oklch(100% 0 0 / 0.84);
+  --material-panel: oklch(100% 0 0 / 0.88);
+  --material-floating: oklch(100% 0 0 / 0.9);
+  --material-opaque: #ffffff;
+  --material-border: oklch(78% 0.018 268 / 0.42);
+  --shadow-panel: 0 8px 24px oklch(24% 0.03 265 / 0.055);
+  --shadow-map: 0 14px 36px oklch(24% 0.035 265 / 0.09);
   --shadow-floating: 0 16px 44px oklch(24% 0.035 265 / 0.13);
   --space-1: 4px;
   --space-2: 8px;
@@ -58,7 +65,10 @@ body,
 
 body {
   overflow: hidden;
-  font-family: Aptos, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  letter-spacing: 0;
 }
 
 button,

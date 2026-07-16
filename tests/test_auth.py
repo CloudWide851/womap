@@ -13,6 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.features.auth.cookies import csrf_cookie_name
+from app.features.auth.credentials import (
+    AuthCredentialAlreadyConfiguredError,
+    AuthCredentialWriteError,
+    AuthCredentialWriterProtocol,
+)
 from app.features.auth.dependencies import get_auth_service
 from app.features.auth.repository import AuthRepository
 from app.features.auth.service import AuthService
@@ -34,10 +39,18 @@ def _password_hash(password: str) -> str:
 def _auth_client(
     database_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    credential_configured: bool = True,
+    credential_writer: AuthCredentialWriterProtocol | None = None,
+    client_host: str = "127.0.0.1",
 ) -> tuple[TestClient, async_sessionmaker[AsyncSession]]:
     settings = get_settings()
     monkeypatch.setattr(settings.auth, "enabled", True)
-    monkeypatch.setattr(settings.auth.local_user, "password_hash", _password_hash(TEST_PASSWORD))
+    monkeypatch.setattr(
+        settings.auth.local_user,
+        "password_hash",
+        _password_hash(TEST_PASSWORD) if credential_configured else "",
+    )
     monkeypatch.setattr(settings.auth.session, "secure_cookie", False)
 
     engine = create_async_engine(
@@ -55,11 +68,26 @@ def _auth_client(
 
     async def auth_service() -> AsyncGenerator[AuthService, None]:
         async with session_factory() as session:
-            yield AuthService(AuthRepository(session), throttle)
+            yield AuthService(
+                AuthRepository(session),
+                throttle,
+                credential_writer=credential_writer,
+            )
 
     app = create_app()
     app.dependency_overrides[get_auth_service] = auth_service
-    return TestClient(app), session_factory
+    return TestClient(app, client=(client_host, 50000)), session_factory
+
+
+class RecordingCredentialWriter:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[tuple[str, str]] = []
+
+    def configure(self, username: str, password: str) -> None:
+        if self.error:
+            raise self.error
+        self.calls.append((username, password))
 
 
 def test_business_routes_require_a_valid_session() -> None:
@@ -138,6 +166,182 @@ def test_login_cookie_csrf_renew_and_logout_flow(
     assert all(record.revoked_at is not None for record in records)
     assert all(record.token_hash != previous_session for record in records)
     assert all(record.csrf_hash != csrf_token for record in records)
+
+
+def test_first_run_setup_configures_credential_and_issues_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = RecordingCredentialWriter()
+    client, _ = _auth_client(
+        tmp_path / "setup-auth.sqlite3",
+        monkeypatch,
+        credential_configured=False,
+        credential_writer=writer,
+    )
+    origin = get_settings().server.cors_origins[0]
+
+    response = client.post(
+        "/api/v1/auth/setup",
+        headers={"Origin": origin},
+        json={
+            "username": "local-admin",
+            "password": TEST_PASSWORD,
+            "password_confirmation": TEST_PASSWORD,
+            "session_mode": "short",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["authenticated"] is True
+    assert TEST_PASSWORD not in response.text
+    assert writer.calls == [("local-admin", TEST_PASSWORD)]
+    assert client.cookies.get(get_settings().auth.session.cookie_name)
+
+
+@pytest.mark.parametrize(
+    ("client_host", "origin", "status_code", "detail"),
+    [
+        ("192.0.2.10", None, 403, "首次设置本地密码只能在本机完成。"),
+        ("127.0.0.1", "https://attacker.invalid", 403, "请求来源不受信任。"),
+    ],
+)
+def test_first_run_setup_rejects_nonlocal_or_untrusted_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    client_host: str,
+    origin: str | None,
+    status_code: int,
+    detail: str,
+) -> None:
+    writer = RecordingCredentialWriter()
+    client, _ = _auth_client(
+        tmp_path / f"blocked-{client_host.replace('.', '-')}.sqlite3",
+        monkeypatch,
+        credential_configured=False,
+        credential_writer=writer,
+        client_host=client_host,
+    )
+    headers = {"Origin": origin} if origin else {}
+
+    response = client.post(
+        "/api/v1/auth/setup",
+        headers=headers,
+        json={
+            "username": "local-admin",
+            "password": TEST_PASSWORD,
+            "password_confirmation": TEST_PASSWORD,
+            "session_mode": "short",
+        },
+    )
+
+    assert response.status_code == status_code
+    assert response.json()["detail"] == detail
+    assert writer.calls == []
+
+
+@pytest.mark.parametrize(
+    ("username", "confirmation", "status_code"),
+    [
+        ("wrong-user", TEST_PASSWORD, 401),
+        ("local-admin", "different secure password", 400),
+    ],
+)
+def test_first_run_setup_validates_account_and_confirmation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    username: str,
+    confirmation: str,
+    status_code: int,
+) -> None:
+    writer = RecordingCredentialWriter()
+    client, _ = _auth_client(
+        tmp_path / f"invalid-setup-{status_code}.sqlite3",
+        monkeypatch,
+        credential_configured=False,
+        credential_writer=writer,
+    )
+
+    response = client.post(
+        "/api/v1/auth/setup",
+        json={
+            "username": username,
+            "password": TEST_PASSWORD,
+            "password_confirmation": confirmation,
+            "session_mode": "short",
+        },
+    )
+
+    assert response.status_code == status_code
+    assert writer.calls == []
+    assert TEST_PASSWORD not in response.text
+
+
+def test_first_run_setup_rejects_common_password(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = RecordingCredentialWriter()
+    client, _ = _auth_client(
+        tmp_path / "common-password.sqlite3",
+        monkeypatch,
+        credential_configured=False,
+        credential_writer=writer,
+    )
+    common_password = "passwordpassword"
+
+    response = client.post(
+        "/api/v1/auth/setup",
+        json={
+            "username": "local-admin",
+            "password": common_password,
+            "password_confirmation": common_password,
+            "session_mode": "short",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "该密码过于常见，请使用更难猜测的密码。"
+    assert writer.calls == []
+    assert common_password not in response.text
+
+
+@pytest.mark.parametrize(
+    ("credential_configured", "writer_error", "status_code"),
+    [
+        (True, None, 409),
+        (False, AuthCredentialAlreadyConfiguredError(), 409),
+        (False, AuthCredentialWriteError("无法保存本地登录凭据。"), 503),
+    ],
+)
+def test_first_run_setup_handles_repeated_or_failed_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    credential_configured: bool,
+    writer_error: Exception | None,
+    status_code: int,
+) -> None:
+    writer = RecordingCredentialWriter(writer_error)
+    client, _ = _auth_client(
+        tmp_path / f"repeat-setup-{status_code}-{credential_configured}.sqlite3",
+        monkeypatch,
+        credential_configured=credential_configured,
+        credential_writer=writer,
+    )
+
+    response = client.post(
+        "/api/v1/auth/setup",
+        json={
+            "username": "local-admin",
+            "password": TEST_PASSWORD,
+            "password_confirmation": TEST_PASSWORD,
+            "session_mode": "short",
+        },
+    )
+
+    assert response.status_code == status_code
+    assert "password_hash" not in response.text
+    assert TEST_PASSWORD not in response.text
 
 
 def test_invalid_credentials_do_not_set_auth_cookies(

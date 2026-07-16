@@ -2,13 +2,16 @@ import { create } from 'zustand';
 
 import {
   ApiRequestError,
+  clearAuthSessionHint,
   configureCsrfCookie,
   getAuthPolicy,
   getAuthSession,
   getHealth,
+  hasAuthSessionHint,
   loginAuth,
   logoutAuth,
   renewAuthSession,
+  setupAuth,
   type AuthPolicyApiResponse,
   type AuthSessionApiResponse,
 } from '../services/api';
@@ -18,6 +21,10 @@ interface LoginInput {
   username: string;
   password: string;
   mode: SessionMode;
+}
+
+interface SetupInput extends LoginInput {
+  passwordConfirmation: string;
 }
 
 type ServiceStatus = 'checking' | 'ready' | 'unavailable';
@@ -39,6 +46,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   refreshPolicy: () => Promise<void>;
   login: (input: LoginInput) => Promise<boolean>;
+  setup: (input: SetupInput) => Promise<boolean>;
   logout: () => Promise<void>;
   renew: () => Promise<void>;
   handleUnauthorized: () => void;
@@ -150,11 +158,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const policy = policyFromApi(await getAuthPolicy());
       configureCsrfCookie(policy.cookieName);
       set({ policy, serviceStatus: 'ready' });
+      if (!policy.credentialConfigured || !hasAuthSessionHint()) return;
       try {
         const session = await getAuthSession();
         set(sessionState(session));
       } catch (error) {
         if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
+        clearAuthSessionHint(policy.secureCookie, policy.sameSite);
       }
     } catch (error) {
       set({
@@ -200,12 +210,56 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ submitting: false });
     }
   },
+  setup: async ({ username, password, passwordConfirmation, mode }) => {
+    const trimmedUsername = username.trim();
+    const currentPolicy = get().policy;
+    if (!trimmedUsername) {
+      set({ error: '账号不能为空' });
+      return false;
+    }
+    if (trimmedUsername !== currentPolicy.username) {
+      set({ error: `首次设置请使用本地账号 ${currentPolicy.username}` });
+      return false;
+    }
+    if (
+      password.length < currentPolicy.passwordMinLength ||
+      password.length > currentPolicy.passwordMaxLength
+    ) {
+      set({ error: `密码长度需为 ${currentPolicy.passwordMinLength}-${currentPolicy.passwordMaxLength}` });
+      return false;
+    }
+    if (password !== passwordConfirmation) {
+      set({ error: '两次输入的密码不一致' });
+      return false;
+    }
+
+    set({ submitting: true, error: null });
+    try {
+      const session = await setupAuth(trimmedUsername, password, passwordConfirmation, mode);
+      set({
+        ...sessionState(session),
+        serviceStatus: 'ready',
+        policy: { ...currentPolicy, credentialConfigured: true },
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 409) {
+        await get().refreshPolicy();
+      }
+      set({ error: messageFrom(error, '本地密码设置失败，请重试。') });
+      return false;
+    } finally {
+      set({ submitting: false });
+    }
+  },
   logout: async () => {
     try {
       if (get().authenticated) await logoutAuth();
     } catch {
       // Local state must still be cleared if the server session has already expired.
     } finally {
+      const policy = get().policy;
+      clearAuthSessionHint(policy.secureCookie, policy.sameSite);
       set({
         authenticated: false,
         username: null,
@@ -227,7 +281,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ renewing: false });
     }
   },
-  handleUnauthorized: () =>
+  handleUnauthorized: () => {
+    const policy = get().policy;
+    clearAuthSessionHint(policy.secureCookie, policy.sameSite);
     set({
       authenticated: false,
       username: null,
@@ -235,7 +291,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       renewalAt: null,
       now: Date.now(),
       error: '会话已过期，请重新登录',
-    }),
+    });
+  },
   tick: () => {
     const now = Date.now();
     const current = get();

@@ -164,7 +164,11 @@ class LocalUserAuthSettings(BaseModel):
 
     @property
     def password_configured(self) -> bool:
-        return bool(self.password_hash and not self.password_hash.startswith("replace-with-"))
+        return is_password_hash_configured(self.password_hash)
+
+
+def is_password_hash_configured(value: str) -> bool:
+    return bool(value and not value.startswith("replace-with-"))
 
 
 class PasswordPolicySettings(BaseModel):

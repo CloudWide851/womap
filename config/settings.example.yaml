@@ -53,6 +53,7 @@ auth:
   enabled: true
   local_user:
     username: local-admin
+    # 首次打开登录页时由本机用户设置；真实哈希只写入忽略提交的 settings.local.yaml。
     password_hash: "replace-with-local-pbkdf2-sha256-hash"
     password_hash_algorithm: pbkdf2_sha256
   password_policy:

@@ -23,6 +23,56 @@ def test_launcher_dev_contract_is_independent_and_cleans_captured_process() -> N
     assert cleanup_index < record_index
 
 
+def test_api_start_runs_migrations_before_starting_uvicorn() -> None:
+    launcher = LAUNCHER.read_text(encoding="utf-8-sig")
+
+    assert "function Invoke-ApiMigrations" in launcher
+    assert "& uv run alembic upgrade head" in launcher
+    start_api = launcher.index("function Start-Api")
+    migration = launcher.index("Invoke-ApiMigrations", start_api)
+    managed_process = launcher.index("Start-ManagedProcess", start_api)
+    assert migration < managed_process
+
+
+@pytest.mark.skipif(shutil.which("powershell.exe") is None, reason="Windows launcher test")
+def test_api_start_stops_when_migration_fails() -> None:
+    launcher_literal = str(LAUNCHER).replace("'", "''")
+    script = f"""
+$ErrorActionPreference = "Stop"
+. '{launcher_literal}'
+$script:ManagedStarted = $false
+function Start-ManagedProcess {{ $script:ManagedStarted = $true }}
+try {{
+    Start-Api -MigrationAction {{ throw "forced migration failure" }}
+    throw "Start-Api unexpectedly succeeded"
+}}
+catch {{
+    if ($_.Exception.Message -ne "forced migration failure") {{ throw }}
+}}
+if ($script:ManagedStarted) {{ throw "API process started after migration failure" }}
+exit 0
+"""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+    completed = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-EncodedCommand",
+            encoded,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
 @pytest.mark.skipif(shutil.which("powershell.exe") is None, reason="Windows launcher test")
 def test_dev_orchestration_attempts_web_after_api_failure() -> None:
     launcher_literal = str(LAUNCHER).replace("'", "''")

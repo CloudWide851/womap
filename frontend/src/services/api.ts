@@ -45,6 +45,16 @@ export function configureCsrfCookie(sessionCookieName: string) {
   csrfCookieName = `${sessionCookieName}_csrf`;
 }
 
+export function hasAuthSessionHint() {
+  return Boolean(cookieValue(csrfCookieName));
+}
+
+export function clearAuthSessionHint(secureCookie: boolean, sameSite: 'lax' | 'strict' | 'none') {
+  if (typeof document === 'undefined') return;
+  const secure = secureCookie ? '; Secure' : '';
+  document.cookie = `${encodeURIComponent(csrfCookieName)}=; Max-Age=0; Path=/; SameSite=${sameSite}${secure}`;
+}
+
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const method = (init.method ?? 'GET').toUpperCase();
   const headers = new Headers(init.headers);
@@ -148,6 +158,26 @@ export async function loginAuth(username: string, password: string, sessionMode:
     body: JSON.stringify({ username, password, session_mode: sessionMode }),
   });
   if (!response.ok) throw await apiError(response, '登录失败');
+  return response.json() as Promise<AuthSessionApiResponse>;
+}
+
+export async function setupAuth(
+  username: string,
+  password: string,
+  passwordConfirmation: string,
+  sessionMode: 'short' | 'long',
+) {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/auth/setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username,
+      password,
+      password_confirmation: passwordConfirmation,
+      session_mode: sessionMode,
+    }),
+  });
+  if (!response.ok) throw await apiError(response, '本地密码设置失败');
   return response.json() as Promise<AuthSessionApiResponse>;
 }
 

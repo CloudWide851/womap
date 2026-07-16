@@ -17,12 +17,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#4f46d8',
-          borderRadius: 5,
-          controlHeight: 28,
-          fontSize: 12,
+          colorPrimary: '#4b52c7',
+          borderRadius: 8,
+          controlHeight: 30,
+          fontSize: 13,
           fontFamily:
-            'Aptos, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
+            '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif',
         },
       }}
     >
