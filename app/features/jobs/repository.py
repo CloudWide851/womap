@@ -7,12 +7,22 @@ from app.features.jobs.schemas import (
     RasterJobProgressDetail,
     JobStatus,
     SpatialAnalysisJobProgressDetail,
+    VectorExportJobProgressDetail,
     WorkspacePackageJobProgressDetail,
 )
 from app.models.job import Job
 
 
 class JobRepository:
+    _PUBLIC_RESULT_FIELDS = {
+        "artifact_name",
+        "dataset_count",
+        "download_ready",
+        "layer_id",
+        "workspace_id",
+        "workspace_name",
+    }
+
     def __init__(self, session: AsyncSession | None = None) -> None:
         self.session = session
 
@@ -41,6 +51,9 @@ class JobRepository:
         if detail_kind == "raster-export" or job.job_type == "raster-export":
             detail.setdefault("kind", "raster-export")
             detail_model = RasterExportJobProgressDetail.model_validate(detail)
+        elif detail_kind == "vector-export" or job.job_type == "vector-export":
+            detail.setdefault("kind", "vector-export")
+            detail_model = VectorExportJobProgressDetail.model_validate(detail)
         elif detail_kind == "raster-process" or job.job_type.startswith("raster-"):
             detail.setdefault("kind", "raster-process")
             detail_model = RasterJobProgressDetail.model_validate(detail)
@@ -53,6 +66,9 @@ class JobRepository:
         else:
             detail.setdefault("kind", "import")
             detail_model = JobProgressDetail.model_validate(detail)
+        public_result = {
+            key: value for key, value in result.items() if key in JobRepository._PUBLIC_RESULT_FIELDS
+        }
         return JobStatus(
             id=job.id,
             job_type=job.job_type,
@@ -60,5 +76,5 @@ class JobRepository:
             progress=job.progress,
             message=job.message,
             detail=detail_model,
-            result=result,
+            result=public_result,
         )

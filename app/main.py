@@ -10,10 +10,8 @@ from sqlalchemy import text
 
 from app.api.v1.router import api_router
 from app.shared.config import get_settings
-from app.features.imports.repository import ImportRepository
-from app.features.spatial_analyses.repository import SpatialAnalysisRepository
-from app.features.workspaces.package_repository import WorkspacePackageRepository
 from app.shared.database import AsyncSessionLocal
+from app.shared.frontend_runtime import register_frontend_runtime
 
 logger = logging.getLogger("womap.lifecycle")
 
@@ -30,16 +28,6 @@ def _security_headers(request_id: str) -> dict[str, str]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    try:
-        async with AsyncSessionLocal() as session:
-            await ImportRepository(session).mark_stale_jobs_interrupted()
-            await WorkspacePackageRepository(session).mark_stale_jobs_interrupted()
-            await SpatialAnalysisRepository(session).mark_stale_jobs_interrupted()
-    except Exception as exc:
-        logger.error(
-            "stale_job_recovery_failed error_type=%s",
-            type(exc).__name__,
-        )
     yield
 
 
@@ -54,7 +42,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.server.cors_origins,
+        allow_origins=settings.server.trusted_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -141,6 +129,8 @@ def create_app() -> FastAPI:
         return {"status": "alive"}
 
     app.include_router(api_router, prefix="/api/v1")
+    if settings.runtime.mode == "production":
+        register_frontend_runtime(app)
     return app
 
 

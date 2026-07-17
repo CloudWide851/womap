@@ -79,38 +79,42 @@ const devServerPort = readYamlPort('frontend.dev_server.port', 5173);
 const configuredApiHost = readYamlScalar('server.host', '127.0.0.1');
 const apiHost = ['0.0.0.0', '::'].includes(configuredApiHost) ? '127.0.0.1' : configuredApiHost;
 const apiPort = readYamlPort('server.port', 8000);
-const apiBaseUrl = process.env.VITE_API_BASE_URL?.trim() || `http://${apiHost}:${apiPort}`;
-
-export default defineConfig({
-  plugins: [react()],
-  cacheDir: '../.vite-cache/frontend',
-  define: {
-    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
-  },
-  resolve: {
-    alias: [
-      {
-        find: /^@ant-design\/icons-svg\/es\/asn\/(.+)$/,
-        replacement: '@ant-design/icons-svg/lib/asn/$1',
-      },
-    ],
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          antd: ['antd'],
-          map: ['ol'],
+export default defineConfig(({ command }) => {
+  const apiBaseUrl =
+    command === 'build'
+      ? ''
+      : process.env.VITE_API_BASE_URL?.trim() || `http://${apiHost}:${apiPort}`;
+  return {
+    plugins: [react()],
+    cacheDir: '../.vite-cache/frontend',
+    define: {
+      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+    },
+    resolve: {
+      alias: [
+        {
+          find: /^@ant-design\/icons-svg\/es\/asn\/(.+)$/,
+          replacement: '@ant-design/icons-svg/lib/asn/$1',
+        },
+      ],
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            antd: ['antd'],
+            map: ['ol'],
+          },
         },
       },
     },
-  },
-  server: {
-    host: devServerHost,
-    port: devServerPort,
-    strictPort: true,
-    fs: {
-      allow: [repoRoot],
+    server: {
+      host: devServerHost,
+      port: devServerPort,
+      strictPort: true,
+      fs: {
+        allow: [repoRoot],
+      },
     },
-  },
+  };
 });

@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,11 +13,7 @@ from app.features.spatial_analyses.schemas import (
     SpatialAnalysisHitPage,
     SpatialAnalysisResult,
 )
-from app.features.spatial_analyses.service import (
-    SpatialAnalysisService,
-    execute_spatial_analysis_export_job,
-    execute_spatial_analysis_job,
-)
+from app.features.spatial_analyses.service import SpatialAnalysisService
 from app.features.workspaces.repository import WorkspaceRepository
 from app.features.workspaces.service import WorkspaceService
 from app.shared.database import get_session
@@ -39,7 +35,6 @@ async def get_spatial_analysis_service(
 @router.post("", response_model=JobStatus, status_code=status.HTTP_202_ACCEPTED)
 async def create_spatial_analysis(
     payload: SpatialAnalysisCreate,
-    background_tasks: BackgroundTasks,
     service: SpatialAnalysisService = Depends(get_spatial_analysis_service),
 ) -> JobStatus:
     try:
@@ -50,7 +45,6 @@ async def create_spatial_analysis(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    background_tasks.add_task(execute_spatial_analysis_job, job.id)
     return job
 
 
@@ -106,7 +100,6 @@ async def cancel_spatial_analysis(
 )
 async def export_spatial_analysis(
     job_id: str,
-    background_tasks: BackgroundTasks,
     service: SpatialAnalysisService = Depends(get_spatial_analysis_service),
 ) -> JobStatus:
     try:
@@ -115,7 +108,6 @@ async def export_spatial_analysis(
         raise HTTPException(status_code=404, detail="空间分析任务不存在。") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    background_tasks.add_task(execute_spatial_analysis_export_job, job.id)
     return job
 
 

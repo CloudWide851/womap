@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from app.features.imports.repository import ImportRepository
 from app.features.imports.scanner import VectorDatasetScanner
 from app.features.imports.schemas import CatalogDataset, ImportCatalog, ImportRequest
 from app.features.imports.sources import SourceMaterializer, TransferProgress
+from app.features.jobs.execution import sanitize_job_error
 from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobProgressDetail, JobStatus
 from app.features.jobs.schemas import RasterJobProgressDetail
@@ -86,6 +87,8 @@ class ImportService:
         ) if raw_detail.get("kind") == "raster-process" else JobProgressDetail.model_validate(raw_detail)
         detail.stage = "queued"
         detail.error = None
+        job.available_at = datetime.now(timezone.utc)
+        job.max_attempts = max(job.max_attempts, job.attempt_count + 1)
         await self.repository.update_job(
             job,
             status="queued",
@@ -148,11 +151,11 @@ class ImportService:
                 else JobProgressDetail.model_validate(raw_detail)
             )
             detail.stage = "failed"
-            detail.error = str(exc)
+            detail.error = sanitize_job_error(exc)
             await self.repository.update_job(
                 job,
                 status="failed",
-                message=f"任务失败：{exc}",
+                message=f"任务失败：{detail.error}",
                 detail=detail,
             )
 
@@ -556,6 +559,6 @@ class ImportService:
         return path
 
 
-async def execute_import_job(job_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def execute_import_job(job_id: str, session_factory=AsyncSessionLocal) -> None:
+    async with session_factory() as session:
         await ImportService(ImportRepository(session)).run_job(job_id)

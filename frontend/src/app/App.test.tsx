@@ -319,7 +319,7 @@ describe('App', () => {
     expect(screen.getByRole('status', { name: /暂无后端图层可导出/ })).toBeInTheDocument();
   });
 
-  it('submits selected backend layers for GDB export and reports the download', async () => {
+  it('submits selected backend layers for queued GDB export', async () => {
     useWorkspaceStore.setState({ selectedLayerId: '2' });
     const backendLayers = [
       {
@@ -426,21 +426,30 @@ describe('App', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      return new Response(new Blob(['zip'], { type: 'application/zip' }), {
-        status: 200,
-        headers: { 'content-disposition': 'attachment; filename="womap-export-gdb.zip"' },
-      });
+      if (url.endsWith('/api/v1/exports')) {
+        return new Response(
+          JSON.stringify({
+            id: 'vector-export-1',
+            job_type: 'vector-export',
+            status: 'queued',
+            progress: 0,
+            message: '矢量导出任务已进入队列。',
+            detail: {
+              kind: 'vector-export',
+              stage: 'queued',
+              processed_layers: 0,
+              total_layers: 1,
+              artifact_name: null,
+              warnings: [],
+              error: null,
+            },
+          }),
+          { status: 202, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response('{}', { status: 404 });
     });
     vi.stubGlobal('fetch', fetchMock);
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      value: vi.fn(() => 'blob:womap-export'),
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      value: vi.fn(),
-    });
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 
     render(<App />);
     await loginToWorkbench();
@@ -464,7 +473,16 @@ describe('App', () => {
       format: 'gdb',
       layer_ids: [2],
     });
-    expect(await screen.findByRole('status', { name: /GDB 导出完成/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('status', { name: /GDB 导出已进入队列/ }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('导出设置')).not.toBeVisible());
+    expect(useJobsStore.getState().jobs[0]).toMatchObject({
+      id: 'vector-export-1',
+      job_type: 'vector-export',
+      status: 'queued',
+      detail: { kind: 'vector-export' },
+    });
   });
 
   it('keeps drawing active, retries layer creation, and handles blocked targets', async () => {

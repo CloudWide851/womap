@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.imports.schemas import CatalogDataset
 from app.features.jobs.repository import JobRepository
+from app.features.jobs.execution import apply_job_lifecycle, assert_job_execution
+from app.features.jobs.policies import new_job_runtime_fields
 from app.features.jobs.schemas import JobProgressDetail, JobStatus
 from app.features.projects.repository import ProjectRepository
 from app.models.job import Job
@@ -31,6 +33,7 @@ class ImportRepository:
             message="任务已进入队列。",
             payload={"source_id": source_id, **payload},
             result={"detail": JobProgressDetail(source_id=source_id).model_dump()},
+            **new_job_runtime_fields(job_type),
         )
         self.session.add(job)
         await self.session.commit()
@@ -59,6 +62,8 @@ class ImportRepository:
         extra_result: dict[str, Any] | None = None,
         commit: bool = True,
     ) -> None:
+        await assert_job_execution(self.session, job)
+        apply_job_lifecycle(job, status)
         if status is not None:
             job.status = status
         if progress is not None:
@@ -232,25 +237,4 @@ class ImportRepository:
 
     async def delete_staging_features(self, layer_id: int) -> None:
         await self.session.execute(delete(MapFeature).where(MapFeature.layer_id == layer_id))
-        await self.session.commit()
-
-    async def mark_stale_jobs_interrupted(self) -> None:
-        jobs = (
-            await self.session.scalars(
-                select(Job).where(
-                    Job.job_type.in_(["import-sync", "import-data"]),
-                    Job.status.in_(["queued", "running"]),
-                )
-            )
-        ).all()
-        for job in jobs:
-            detail = JobProgressDetail.model_validate((job.result or {}).get("detail") or {})
-            detail.stage = "interrupted"
-            await self.update_job(
-                job,
-                status="interrupted",
-                message="服务已重启，请手动继续任务。",
-                detail=detail,
-                commit=False,
-            )
         await self.session.commit()

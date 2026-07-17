@@ -164,6 +164,16 @@ export interface RasterExportJobProgressDetail {
   error: string | null;
 }
 
+export interface VectorExportJobProgressDetail {
+  kind: 'vector-export';
+  stage: string;
+  processed_layers: number;
+  total_layers: number;
+  artifact_name: string | null;
+  warnings: string[];
+  error: string | null;
+}
+
 export interface WorkspacePackageJobProgressDetail {
   kind: 'workspace-package';
   stage: string;
@@ -194,7 +204,8 @@ export type JobProgressDetail =
   | WorkspacePackageJobProgressDetail
   | SpatialAnalysisJobProgressDetail
   | RasterJobProgressDetail
-  | RasterExportJobProgressDetail;
+  | RasterExportJobProgressDetail
+  | VectorExportJobProgressDetail;
 
 export interface ImportJob {
   id: string;
@@ -203,7 +214,6 @@ export interface ImportJob {
   progress: number;
   message: string | null;
   detail: JobProgressDetail;
-  result: Record<string, unknown>;
 }
 
 export interface BackendLayerSummary {

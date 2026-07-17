@@ -7,6 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.jobs.repository import JobRepository
+from app.features.jobs.execution import apply_job_lifecycle, assert_job_execution
+from app.features.jobs.policies import new_job_runtime_fields
 from app.features.jobs.schemas import (
     JobStatus,
     RasterExportJobProgressDetail,
@@ -78,6 +80,7 @@ class RasterRepository:
             message="派生栅格任务已进入队列。",
             payload={"layer_id": layer_id, **payload},
             result={"detail": detail.model_dump(mode="json")},
+            **new_job_runtime_fields("raster-derive"),
         )
         self.session.add(job)
         await self.session.commit()
@@ -94,6 +97,7 @@ class RasterRepository:
             message="栅格导出任务已进入队列。",
             payload={"layer_ids": layer_ids, "format": format_name},
             result={"detail": detail.model_dump(mode="json")},
+            **new_job_runtime_fields("raster-export"),
         )
         self.session.add(job)
         await self.session.commit()
@@ -113,6 +117,8 @@ class RasterRepository:
         detail: RasterJobProgressDetail | RasterExportJobProgressDetail | None = None,
         extra_result: dict[str, Any] | None = None,
     ) -> None:
+        await assert_job_execution(self.session, job)
+        apply_job_lifecycle(job, status)
         if status is not None:
             job.status = status
         if progress is not None:

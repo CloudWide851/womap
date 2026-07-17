@@ -8,6 +8,8 @@ from sqlalchemy import false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.jobs.repository import JobRepository
+from app.features.jobs.execution import apply_job_lifecycle, assert_job_execution
+from app.features.jobs.policies import new_job_runtime_fields
 from app.features.jobs.schemas import JobStatus, WorkspacePackageJobProgressDetail
 from app.features.workspaces.schemas import WorkspaceFeatureSelection
 from app.models.job import Job
@@ -40,6 +42,7 @@ class WorkspacePackageRepository:
             message="工作空间任务已进入队列。",
             payload={"workspace_id": workspace_id, **(payload or {})},
             result={"detail": detail.model_dump()},
+            **new_job_runtime_fields(job_type),
         )
         self.session.add(job)
         await self.session.commit()
@@ -62,6 +65,8 @@ class WorkspacePackageRepository:
         detail: WorkspacePackageJobProgressDetail | None = None,
         extra_result: dict[str, Any] | None = None,
     ) -> None:
+        await assert_job_execution(self.session, job)
+        apply_job_lifecycle(job, status)
         if status is not None:
             job.status = status
         if progress is not None:
@@ -124,22 +129,3 @@ class WorkspacePackageRepository:
 
     async def rollback(self) -> None:
         await self.session.rollback()
-
-    async def mark_stale_jobs_interrupted(self) -> None:
-        jobs = (
-            await self.session.scalars(
-                select(Job).where(
-                    Job.job_type.in_(["workspace-export", "workspace-import"]),
-                    Job.status.in_(["queued", "running"]),
-                )
-            )
-        ).all()
-        for job in jobs:
-            detail = WorkspacePackageJobProgressDetail.model_validate(
-                (job.result or {}).get("detail") or {}
-            )
-            detail.stage = "interrupted"
-            job.status = "interrupted"
-            job.message = "服务已重启，工作空间包任务已中断。"
-            job.result = {**dict(job.result or {}), "detail": detail.model_dump()}
-        await self.session.commit()

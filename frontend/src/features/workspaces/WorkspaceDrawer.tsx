@@ -228,8 +228,8 @@ export function WorkspaceDrawer({ open, onClose }: WorkspaceDrawerProps) {
       );
       showNotice({ tone: 'info', title: '正在导入工作空间包', detail: '数据将先写入 staging。' });
       const done = await waitForJob(job.id);
-      const workspaceId = Number(done.result.workspace_id);
-      if (Number.isInteger(workspaceId)) await switchWorkspace(workspaceId);
+      const workspaceId = done.detail.kind === 'workspace-package' ? done.detail.workspace_id : null;
+      if (workspaceId !== null) await switchWorkspace(workspaceId);
       setPackagePreview(null);
       await refreshCatalog();
       showNotice({ tone: 'success', title: '工作空间包已导入', detail: done.message ?? '导入完成。' });

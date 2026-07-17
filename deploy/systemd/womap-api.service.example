@@ -1,0 +1,27 @@
+[Unit]
+Description=WOMAP production API
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=womap
+Group=womap
+WorkingDirectory=/opt/womap
+Environment=WOMAP_RUNTIME_MODE=production
+Environment=WOMAP_WORKER_ENABLED=true
+Environment=UV_CACHE_DIR=/var/cache/womap/uv
+ExecStartPre=/usr/bin/env uv run alembic upgrade head
+ExecStart=/usr/bin/env uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=45
+Nice=0
+CPUWeight=100
+IOWeight=100
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

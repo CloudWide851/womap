@@ -106,7 +106,6 @@ function analysisJob(status: ImportJob['status'] = 'queued'): ImportJob {
     progress: status === 'done' ? 100 : 0,
     message: status === 'done' ? '空间分析完成' : '空间分析排队中',
     detail: { ...jobDetail, stage: status },
-    result: {},
   };
 }
 

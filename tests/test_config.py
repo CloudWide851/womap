@@ -131,6 +131,71 @@ maps:
     assert settings.frontend.dev_server.port == 5273
 
 
+def test_local_server_origins_are_trusted_without_repeating_cors_config() -> None:
+    database = load_settings(EXAMPLE_CONFIG_PATH)
+    database.server.host = "0.0.0.0"
+    database.server.port = 8123
+    database.server.cors_origins = ["http://127.0.0.1:5173/"]
+
+    assert database.server.trusted_origins == [
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8123",
+        "http://localhost:8123",
+    ]
+
+
+def test_launcher_environment_overrides_only_runtime_mode_and_worker_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "settings.yaml"
+    config_path.write_text(
+        """
+runtime:
+  mode: development
+performance:
+  worker:
+    enabled: false
+server:
+  port: 8123
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("WOMAP_RUNTIME_MODE", "production")
+    monkeypatch.setenv("WOMAP_WORKER_ENABLED", "true")
+    monkeypatch.setenv("WOMAP_SERVER_PORT", "9999")
+
+    settings = load_settings(config_path)
+
+    assert settings.runtime.mode == "production"
+    assert settings.performance.worker.enabled is True
+    assert settings.server.port == 8123
+
+
+def test_invalid_launcher_environment_overrides_are_ignored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "settings.yaml"
+    config_path.write_text(
+        """
+runtime:
+  mode: development
+performance:
+  worker:
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("WOMAP_RUNTIME_MODE", "benchmark")
+    monkeypatch.setenv("WOMAP_WORKER_ENABLED", "sometimes")
+
+    settings = load_settings(config_path)
+
+    assert settings.runtime.mode == "development"
+    assert settings.performance.worker.enabled is False
+
+
 def test_runtime_feature_modules_import_cleanly() -> None:
     import app.features.auth.router
     import app.features.basemaps.router

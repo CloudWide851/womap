@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 from geoalchemy2.shape import from_shape
 
+from app.features.jobs.execution import sanitize_job_error
 from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobStatus, WorkspacePackageJobProgressDetail
 from app.features.projects.repository import ProjectRepository
@@ -172,11 +173,11 @@ class WorkspacePackageService:
         except Exception as exc:
             await self.repository.rollback()
             detail.stage = "failed"
-            detail.error = str(exc)
+            detail.error = sanitize_job_error(exc)
             await self.repository.update_job(
                 job,
                 status="failed",
-                message=f"工作空间包任务失败：{exc}",
+                message=f"工作空间包任务失败：{detail.error}",
                 detail=detail,
             )
 
@@ -234,26 +235,35 @@ class WorkspacePackageService:
             type=provider.type if provider else "xyz",
         )
         output_dir = ARTIFACT_ROOT / job.id
-        archive = await asyncio.to_thread(
-            build_workspace_package,
-            output_dir=output_dir,
-            workspace=workspace,
-            basemap=basemap,
-            layer_features=layer_features,
-            raster_assets=raster_assets,
-        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        execution_id = uuid4().hex[:16]
+        work_dir = output_dir / f".work-{execution_id}"
+        try:
+            archive = await asyncio.to_thread(
+                build_workspace_package,
+                output_dir=work_dir,
+                workspace=workspace,
+                basemap=basemap,
+                layer_features=layer_features,
+                raster_assets=raster_assets,
+            )
+            stem = archive.filename.removesuffix(".womap.zip")
+            artifact_name = f"{stem}-{execution_id}.womap.zip"
+            archive.path.replace(output_dir / artifact_name)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
         detail.stage = "done"
         detail.current_layer = None
         detail.processed_features = sum(len(rows) for rows in layer_features.values())
         detail.total_features = detail.processed_features
-        detail.artifact_name = archive.filename
+        detail.artifact_name = artifact_name
         await self.repository.update_job(
             job,
             status="done",
             progress=100,
             message="工作空间包已生成。",
             detail=detail,
-            extra_result={"artifact_name": archive.filename, "download_ready": True},
+            extra_result={"artifact_name": artifact_name, "download_ready": True},
         )
 
     async def _run_import(self, job, detail: WorkspacePackageJobProgressDetail) -> None:
@@ -591,8 +601,8 @@ class WorkspacePackageService:
         return path
 
 
-async def execute_workspace_package_job(job_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def execute_workspace_package_job(job_id: str, session_factory=AsyncSessionLocal) -> None:
+    async with session_factory() as session:
         repository = WorkspacePackageRepository(session)
         service = WorkspacePackageService(
             repository,

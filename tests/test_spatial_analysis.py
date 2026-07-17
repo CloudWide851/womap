@@ -70,21 +70,9 @@ class FakeSpatialAnalysisService:
         )
 
 
-def analysis_client(service, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def analysis_client(service) -> TestClient:
     app = allow_test_auth(create_app())
     app.dependency_overrides[get_spatial_analysis_service] = lambda: service
-
-    async def no_background_job(_: str) -> None:
-        return None
-
-    monkeypatch.setattr(
-        "app.features.spatial_analyses.router.execute_spatial_analysis_job",
-        no_background_job,
-    )
-    monkeypatch.setattr(
-        "app.features.spatial_analyses.router.execute_spatial_analysis_export_job",
-        no_background_job,
-    )
     return TestClient(app)
 
 
@@ -112,10 +100,8 @@ def test_analysis_units_are_normalized_to_meters() -> None:
     ).distance_meters == pytest.approx(1609.344)
 
 
-def test_spatial_analysis_api_submit_result_hits_cancel_and_export(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    client = analysis_client(FakeSpatialAnalysisService(), monkeypatch)
+def test_spatial_analysis_api_submit_result_hits_cancel_and_export() -> None:
+    client = analysis_client(FakeSpatialAnalysisService())
     response = client.post(
         "/api/v1/spatial-analyses",
         json={
@@ -146,9 +132,8 @@ def test_spatial_analysis_api_submit_result_hits_cancel_and_export(
 def test_spatial_analysis_api_error_mapping(
     error: Exception,
     expected: int,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = analysis_client(FakeSpatialAnalysisService(error), monkeypatch)
+    client = analysis_client(FakeSpatialAnalysisService(error))
     response = client.post(
         "/api/v1/spatial-analyses",
         json={

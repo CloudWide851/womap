@@ -4,7 +4,7 @@ import { memo, useEffect } from 'react';
 
 import { useJobsStore } from '../../stores/useJobsStore';
 import { useSpatialAnalysisStore } from '../../stores/useSpatialAnalysisStore';
-import { downloadRasterExport } from '../../services/api';
+import { downloadRasterExport, downloadVectorExport } from '../../services/api';
 import type { ImportJob } from '../../types/imports';
 
 const statusLabels: Record<ImportJob['status'], string> = {
@@ -34,6 +34,7 @@ function jobLabel(jobType: string) {
   if (jobType === 'spatial-analysis-export') return '分析结果导出';
   if (jobType === 'raster-derive') return '派生栅格';
   if (jobType === 'raster-export') return 'COG 导出';
+  if (jobType === 'vector-export') return '矢量成果导出';
   return '后台任务';
 }
 
@@ -46,6 +47,15 @@ const JobItem = memo(function JobItem({ job }: JobItemProps) {
   const openAnalysis = useSpatialAnalysisStore((state) => state.openHistory);
   const downloadRaster = async () => {
     const result = await downloadRasterExport(job.id);
+    const url = URL.createObjectURL(result.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = result.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const downloadVector = async () => {
+    const result = await downloadVectorExport(job.id);
     const url = URL.createObjectURL(result.blob);
     const link = document.createElement('a');
     link.href = url;
@@ -89,7 +99,22 @@ const JobItem = memo(function JobItem({ job }: JobItemProps) {
       />
       <p>{job.message}</p>
       {job.job_type === 'raster-export' && job.status === 'done' && (
-        <Button size="small" icon={<Download size={13} />} onClick={() => void downloadRaster()}>
+        <Button
+          size="small"
+          icon={<Download size={13} />}
+          aria-label="下载 COG 导出"
+          onClick={() => void downloadRaster()}
+        >
+          下载
+        </Button>
+      )}
+      {job.job_type === 'vector-export' && job.status === 'done' && (
+        <Button
+          size="small"
+          icon={<Download size={13} />}
+          aria-label="下载矢量成果导出"
+          onClick={() => void downloadVector()}
+        >
           下载
         </Button>
       )}

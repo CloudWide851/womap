@@ -27,7 +27,6 @@ const queuedJob = {
     warnings: [],
     error: null,
   },
-  result: {},
 };
 
 const apiMocks = vi.hoisted(() => ({

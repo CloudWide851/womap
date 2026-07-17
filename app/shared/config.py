@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +29,19 @@ class ServerSettings(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+    @property
+    def trusted_origins(self) -> list[str]:
+        origins = list(dict.fromkeys(origin.rstrip("/") for origin in self.cors_origins))
+        hosts = [self.host]
+        if self.host in {"0.0.0.0", "::", "127.0.0.1", "localhost", "::1"}:
+            hosts = ["127.0.0.1", "localhost"]
+        for host in hosts:
+            rendered = f"[{host}]" if ":" in host and not host.startswith("[") else host
+            origin = f"http://{rendered}:{self.port}"
+            if origin not in origins:
+                origins.append(origin)
+        return origins
 
 
 class FrontendDevServerSettings(BaseModel):
@@ -279,6 +293,19 @@ class PerformanceWorkerSettings(BaseModel):
     lease_seconds: int = Field(default=120, ge=30, le=3600)
     heartbeat_seconds: int = Field(default=30, ge=5, le=600)
     shutdown_grace_seconds: int = Field(default=30, ge=1, le=300)
+    database_pool_size: int = Field(default=2, ge=2, le=4)
+    database_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    database_recycle_seconds: int = Field(default=1800, ge=60, le=86400)
+    windows_priority: Literal["below_normal", "normal"] = "below_normal"
+    linux_nice: int = Field(default=10, ge=0, le=19)
+
+    @model_validator(mode="after")
+    def validate_lease_timing(self) -> "PerformanceWorkerSettings":
+        if self.heartbeat_seconds * 3 > self.lease_seconds:
+            raise ValueError("worker heartbeat_seconds must be at most one third of lease_seconds")
+        if self.concurrency not in {None, 1}:
+            raise ValueError("the first durable worker release supports concurrency=1 only")
+        return self
 
 
 class PerformanceGdalSettings(BaseModel):
@@ -496,6 +523,14 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     if resolved_path.exists():
         with resolved_path.open("r", encoding="utf-8") as config_file:
             raw_config = yaml.safe_load(config_file) or {}
+    runtime_mode = os.getenv("WOMAP_RUNTIME_MODE", "").strip().casefold()
+    if runtime_mode in {"development", "production"}:
+        raw_config.setdefault("runtime", {})["mode"] = runtime_mode
+    worker_enabled = os.getenv("WOMAP_WORKER_ENABLED", "").strip().casefold()
+    if worker_enabled in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+        raw_config.setdefault("performance", {}).setdefault("worker", {})["enabled"] = (
+            worker_enabled in {"1", "true", "yes", "on"}
+        )
     settings = Settings.model_validate(raw_config)
     settings.config_source = str(resolved_path)
     return settings

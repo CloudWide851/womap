@@ -21,6 +21,7 @@ from app.features.performance.schemas import (
     StorageCapability,
     SystemCapability,
 )
+from app.shared.system_resources import detect_memory_bytes
 
 
 CommandRunner = Callable[[Sequence[str], float], str | None]
@@ -298,39 +299,11 @@ class CapabilityDetector:
 
     @staticmethod
     def _portable_memory() -> tuple[int | None, int | None]:
-        try:
-            page_size = os.sysconf("SC_PAGE_SIZE")
-            total_pages = os.sysconf("SC_PHYS_PAGES")
-            available_pages = os.sysconf("SC_AVPHYS_PAGES")
-            return page_size * total_pages, page_size * available_pages
-        except (AttributeError, OSError, ValueError):
-            return None, None
+        return detect_memory_bytes()
 
     @staticmethod
     def _windows_memory_native() -> tuple[int | None, int | None]:
-        try:
-            import ctypes
-
-            class MemoryStatus(ctypes.Structure):
-                _fields_ = [
-                    ("length", ctypes.c_ulong),
-                    ("memory_load", ctypes.c_ulong),
-                    ("total_physical", ctypes.c_ulonglong),
-                    ("available_physical", ctypes.c_ulonglong),
-                    ("total_page_file", ctypes.c_ulonglong),
-                    ("available_page_file", ctypes.c_ulonglong),
-                    ("total_virtual", ctypes.c_ulonglong),
-                    ("available_virtual", ctypes.c_ulonglong),
-                    ("available_extended_virtual", ctypes.c_ulonglong),
-                ]
-
-            status = MemoryStatus()
-            status.length = ctypes.sizeof(MemoryStatus)
-            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-                return None, None
-            return int(status.total_physical), int(status.available_physical)
-        except (AttributeError, OSError, TypeError, ValueError):
-            return None, None
+        return detect_memory_bytes("win32")
 
     @staticmethod
     def _windows_physical_cores_native() -> int | None:

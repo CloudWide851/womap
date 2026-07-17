@@ -8,7 +8,9 @@ import zipfile
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+from app.features.jobs.execution import sanitize_job_error
 from app.features.jobs.repository import JobRepository
 from app.features.jobs.schemas import JobStatus, SpatialAnalysisJobProgressDetail
 from app.features.map_features.repository import MapFeatureRepository
@@ -29,7 +31,6 @@ from app.shared.config import ROOT_DIR
 from app.shared.database import AsyncSessionLocal
 
 ANALYSIS_ARTIFACT_ROOT = ROOT_DIR / ".womap-data" / "spatial-analysis"
-_CANCEL_REQUESTS: set[str] = set()
 
 
 class SpatialAnalysisService:
@@ -107,12 +108,16 @@ class SpatialAnalysisService:
         )
         try:
             detail.stage = "running"
+            detail.processed_layers = 0
+            detail.matched_features = 0
+            detail.error = None
             await self.repository.update_job(
                 job,
                 status="running",
                 progress=1,
                 message="正在按工作空间图层执行空间分析。",
                 detail=detail,
+                extra_result={"groups": [], "buffer_geometry": None},
             )
             payload = job.payload or {}
             buffer_geometry = await self.repository.buffer_geometry(
@@ -122,8 +127,6 @@ class SpatialAnalysisService:
             grouped: OrderedDict[str, SpatialAnalysisDatasetSummary] = OrderedDict()
             layers = list(payload.get("layers") or [])
             for index, layer in enumerate(layers, start=1):
-                if job_id in _CANCEL_REQUESTS:
-                    raise asyncio.CancelledError
                 metrics = await self.repository.summarize_layer(
                     layer=layer,
                     target_geojson=payload["target_geometry"],
@@ -181,15 +184,13 @@ class SpatialAnalysisService:
         except Exception as exc:
             await self.repository.rollback()
             detail.stage = "failed"
-            detail.error = str(exc)
+            detail.error = sanitize_job_error(exc)
             await self.repository.update_job(
                 job,
                 status="failed",
-                message=f"空间分析失败：{exc}",
+                message=f"空间分析失败：{detail.error}",
                 detail=detail,
             )
-        finally:
-            _CANCEL_REQUESTS.discard(job_id)
 
     async def get_result(self, job_id: str) -> SpatialAnalysisResult:
         job = await self._analysis_job(job_id)
@@ -277,17 +278,7 @@ class SpatialAnalysisService:
         job = await self._analysis_job(job_id)
         if job.status not in {"queued", "running"}:
             raise ValueError("只有排队中或运行中的空间分析可以取消。")
-        _CANCEL_REQUESTS.add(job_id)
-        detail = SpatialAnalysisJobProgressDetail.model_validate(
-            (job.result or {}).get("detail") or {}
-        )
-        detail.stage = "canceling"
-        await self.repository.update_job(
-            job,
-            status="interrupted",
-            message="已请求取消空间分析。",
-            detail=detail,
-        )
+        await self.repository.request_cancel(job)
         return JobRepository.to_status(job)
 
     async def queue_export(self, job_id: str) -> JobStatus:
@@ -346,11 +337,11 @@ class SpatialAnalysisService:
         except Exception as exc:
             await self.repository.rollback()
             detail.stage = "failed"
-            detail.error = str(exc)
+            detail.error = sanitize_job_error(exc)
             await self.repository.update_job(
                 export_job,
                 status="failed",
-                message=f"分析结果导出失败：{exc}",
+                message=f"分析结果导出失败：{detail.error}",
                 detail=detail,
             )
 
@@ -401,42 +392,46 @@ class SpatialAnalysisService:
         hits: list[SpatialAnalysisHit],
     ) -> str:
         output_dir = ANALYSIS_ARTIFACT_ROOT / export_job_id
-        shutil.rmtree(output_dir, ignore_errors=True)
         output_dir.mkdir(parents=True, exist_ok=True)
-        summary_path = output_dir / "summary.csv"
-        with summary_path.open("w", encoding="utf-8-sig", newline="") as file_handle:
-            writer = csv.writer(file_handle)
-            writer.writerow(
-                [
-                    "数据集",
-                    "图层",
-                    "几何类型",
-                    "是否存在",
-                    "命中数",
-                    "最近距离(m)",
-                    "直接相交面积(m²)",
-                    "缓冲相交面积(m²)",
-                    "相交长度(m)",
-                    "点命中数",
-                ]
-            )
-            for group in result.groups:
-                for layer in group.layers:
-                    writer.writerow(
-                        [
-                            group.name,
-                            layer.layer_name,
-                            layer.geometry_type,
-                            "是" if layer.exists else "否",
-                            layer.hit_count,
-                            layer.nearest_distance_m,
-                            layer.direct_area_sqm,
-                            layer.buffer_area_sqm,
-                            layer.buffer_length_m,
-                            layer.point_hit_count,
-                        ]
-                    )
-        geojson = {
+        execution_id = uuid4().hex[:16]
+        work_dir = output_dir / f".work-{execution_id}"
+        work_dir.mkdir(parents=True, exist_ok=False)
+        summary_path = work_dir / "summary.csv"
+        temporary: Path | None = None
+        try:
+            with summary_path.open("w", encoding="utf-8-sig", newline="") as file_handle:
+                writer = csv.writer(file_handle)
+                writer.writerow(
+                    [
+                        "数据集",
+                        "图层",
+                        "几何类型",
+                        "是否存在",
+                        "命中数",
+                        "最近距离(m)",
+                        "直接相交面积(m²)",
+                        "缓冲相交面积(m²)",
+                        "相交长度(m)",
+                        "点命中数",
+                    ]
+                )
+                for group in result.groups:
+                    for layer in group.layers:
+                        writer.writerow(
+                            [
+                                group.name,
+                                layer.layer_name,
+                                layer.geometry_type,
+                                "是" if layer.exists else "否",
+                                layer.hit_count,
+                                layer.nearest_distance_m,
+                                layer.direct_area_sqm,
+                                layer.buffer_area_sqm,
+                                layer.buffer_length_m,
+                                layer.point_hit_count,
+                            ]
+                        )
+            geojson = {
             "type": "FeatureCollection",
             "features": [
                 {
@@ -456,29 +451,35 @@ class SpatialAnalysisService:
                 for hit in hits
                 if hit.geometry is not None
             ],
-        }
-        (output_dir / "hits.geojson").write_text(
-            json.dumps(geojson, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        (output_dir / "parameters.txt").write_text(
-            f"workspace_id={result.workspace_id}\n"
-            f"target_layer_id={result.target_layer_id}\n"
-            f"target_feature_id={result.target_feature_id}\n"
-            f"distance={result.distance} {result.unit}\n"
-            f"scope={result.scope}\n"
-            f"stale={result.stale}\n",
-            encoding="utf-8",
-        )
-        filename = f"spatial-analysis-{result.job.id}.zip"
-        with zipfile.ZipFile(output_dir / filename, "w", zipfile.ZIP_DEFLATED) as archive:
-            for name in ("summary.csv", "hits.geojson", "parameters.txt"):
-                archive.write(output_dir / name, arcname=name)
-        return filename
+            }
+            (work_dir / "hits.geojson").write_text(
+                json.dumps(geojson, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (work_dir / "parameters.txt").write_text(
+                f"workspace_id={result.workspace_id}\n"
+                f"target_layer_id={result.target_layer_id}\n"
+                f"target_feature_id={result.target_feature_id}\n"
+                f"distance={result.distance} {result.unit}\n"
+                f"scope={result.scope}\n"
+                f"stale={result.stale}\n",
+                encoding="utf-8",
+            )
+            filename = f"spatial-analysis-{result.job.id}-{execution_id}.zip"
+            temporary = output_dir / f".{filename}.part"
+            with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+                for name in ("summary.csv", "hits.geojson", "parameters.txt"):
+                    archive.write(work_dir / name, arcname=name)
+            temporary.replace(output_dir / filename)
+            return filename
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
-async def execute_spatial_analysis_job(job_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def execute_spatial_analysis_job(job_id: str, session_factory=AsyncSessionLocal) -> None:
+    async with session_factory() as session:
         repository = SpatialAnalysisRepository(session)
         workspace_service = WorkspaceService(WorkspaceRepository(session))
         feature_service = MapFeatureService(
@@ -488,8 +489,8 @@ async def execute_spatial_analysis_job(job_id: str) -> None:
         await SpatialAnalysisService(repository, workspace_service, feature_service).run(job_id)
 
 
-async def execute_spatial_analysis_export_job(job_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def execute_spatial_analysis_export_job(job_id: str, session_factory=AsyncSessionLocal) -> None:
+    async with session_factory() as session:
         repository = SpatialAnalysisRepository(session)
         workspace_service = WorkspaceService(WorkspaceRepository(session))
         feature_service = MapFeatureService(

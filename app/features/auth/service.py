@@ -82,7 +82,7 @@ class AuthService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="首次设置本地密码只能在本机完成。",
             )
-        if origin and origin not in settings.server.cors_origins:
+        if origin and origin.rstrip("/") not in settings.server.trusted_origins:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="请求来源不受信任。",

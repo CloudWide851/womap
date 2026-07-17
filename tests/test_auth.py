@@ -444,3 +444,34 @@ def test_csrf_rejects_untrusted_origin(
     assert response.status_code == 403
     assert response.json()["detail"] == "请求来源不受信任。"
     assert response.json()["request_id"] == response.headers["x-request-id"]
+
+
+def test_csrf_accepts_same_origin_production_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = _auth_client(tmp_path / "same-origin-auth.sqlite3", monkeypatch)
+    settings = get_settings()
+    local_origin = f"http://127.0.0.1:{settings.server.port}"
+    assert local_origin in settings.server.trusted_origins
+    login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "local-admin",
+            "password": TEST_PASSWORD,
+            "session_mode": "short",
+        },
+    )
+    assert login.status_code == 200
+
+    response = client.post(
+        "/api/v1/auth/renew",
+        headers={
+            "Origin": local_origin,
+            "X-WOMAP-CSRF": client.cookies.get(
+                csrf_cookie_name(settings.auth.session)
+            ),
+        },
+    )
+
+    assert response.status_code == 200

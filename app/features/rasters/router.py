@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,7 @@ from app.features.rasters.schemas import (
     RasterStorageStatus,
     RasterStyle,
 )
-from app.features.rasters.service import RasterService, execute_raster_job
+from app.features.rasters.service import RasterService
 from app.features.rasters.storage import RasterStorageError
 from app.shared.database import get_session
 
@@ -162,7 +162,6 @@ async def update_raster_style(
 async def derive_raster(
     layer_id: int,
     payload: RasterDeriveRequest,
-    background_tasks: BackgroundTasks,
     service: RasterService = Depends(get_raster_service),
 ) -> JobStatus:
     try:
@@ -171,21 +170,18 @@ async def derive_raster(
         raise HTTPException(status_code=404, detail="栅格图层不存在。") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    background_tasks.add_task(execute_raster_job, job.id)
     return job
 
 
 @router.post("/exports", response_model=JobStatus, status_code=202)
 async def export_rasters(
     payload: RasterExportRequest,
-    background_tasks: BackgroundTasks,
     service: RasterService = Depends(get_raster_service),
 ) -> JobStatus:
     try:
         job = await service.queue_export(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    background_tasks.add_task(execute_raster_job, job.id)
     return job
 
 

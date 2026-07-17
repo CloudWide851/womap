@@ -144,6 +144,11 @@ performance:
     lease_seconds: 120
     heartbeat_seconds: 30
     shutdown_grace_seconds: 30
+    database_pool_size: 2
+    database_timeout_seconds: 30
+    database_recycle_seconds: 1800
+    windows_priority: below_normal
+    linux_nice: 10
   gdal:
     cache_mib: null
     thread_cap: null

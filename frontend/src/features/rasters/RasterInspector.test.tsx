@@ -130,7 +130,6 @@ const derivedJob: ImportJob = {
     warnings: [],
     error: null,
   },
-  result: {},
 };
 
 afterEach(() => {

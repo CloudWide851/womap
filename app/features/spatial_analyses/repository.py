@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -8,6 +9,8 @@ from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.jobs.repository import JobRepository
+from app.features.jobs.execution import apply_job_lifecycle, assert_job_execution
+from app.features.jobs.policies import new_job_runtime_fields
 from app.features.jobs.schemas import JobStatus, SpatialAnalysisJobProgressDetail
 from app.models.job import Job
 from app.models.layer import Layer
@@ -45,6 +48,7 @@ class SpatialAnalysisRepository:
             message="空间分析任务已进入队列。",
             payload=payload,
             result={"detail": detail.model_dump(), "groups": []},
+            **new_job_runtime_fields("spatial-analysis"),
         )
         self.session.add(job)
         await self.session.commit()
@@ -65,6 +69,7 @@ class SpatialAnalysisRepository:
             message="分析结果导出已进入队列。",
             payload={"analysis_job_id": analysis_job.id},
             result={"detail": detail.model_dump()},
+            **new_job_runtime_fields("spatial-analysis-export"),
         )
         self.session.add(job)
         await self.session.commit()
@@ -73,6 +78,24 @@ class SpatialAnalysisRepository:
 
     async def get_job(self, job_id: str) -> Job | None:
         return await self.session.get(Job, job_id)
+
+    async def request_cancel(self, job: Job) -> None:
+        await self.session.refresh(job)
+        detail = SpatialAnalysisJobProgressDetail.model_validate(
+            (job.result or {}).get("detail") or {}
+        )
+        now = datetime.now(timezone.utc)
+        if job.status == "queued":
+            detail.stage = "canceled"
+            job.status = "interrupted"
+            job.finished_at = now
+            job.message = "空间分析已取消。"
+        else:
+            detail.stage = "canceling"
+            job.cancel_requested_at = now
+            job.message = "已请求取消空间分析。"
+        job.result = {**dict(job.result or {}), "detail": detail.model_dump()}
+        await self.session.commit()
 
     async def update_job(
         self,
@@ -84,6 +107,8 @@ class SpatialAnalysisRepository:
         detail: SpatialAnalysisJobProgressDetail | None = None,
         extra_result: dict[str, Any] | None = None,
     ) -> None:
+        await assert_job_execution(self.session, job)
+        apply_job_lifecycle(job, status)
         if status is not None:
             job.status = status
         if progress is not None:
@@ -331,25 +356,6 @@ class SpatialAnalysisRepository:
 
     async def rollback(self) -> None:
         await self.session.rollback()
-
-    async def mark_stale_jobs_interrupted(self) -> None:
-        jobs = (
-            await self.session.scalars(
-                select(Job).where(
-                    Job.job_type.in_(["spatial-analysis", "spatial-analysis-export"]),
-                    Job.status.in_(["queued", "running"]),
-                )
-            )
-        ).all()
-        for job in jobs:
-            detail = SpatialAnalysisJobProgressDetail.model_validate(
-                (job.result or {}).get("detail") or {}
-            )
-            detail.stage = "interrupted"
-            job.status = "interrupted"
-            job.message = "服务已重启，空间分析任务已中断。"
-            job.result = {**dict(job.result or {}), "detail": detail.model_dump()}
-        await self.session.commit()
 
     @staticmethod
     def _selection_clause(layer: dict[str, Any]):

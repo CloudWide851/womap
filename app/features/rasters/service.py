@@ -10,6 +10,7 @@ from email.utils import format_datetime
 from pathlib import Path
 from uuid import uuid4
 
+from app.features.jobs.execution import sanitize_job_error
 from app.features.jobs.schemas import (
     JobStatus,
     RasterExportJobProgressDetail,
@@ -196,11 +197,11 @@ class RasterService:
             else:
                 detail = RasterJobProgressDetail.model_validate(raw)
             detail.stage = "failed"
-            detail.error = str(exc)[:500]
+            detail.error = sanitize_job_error(exc)
             await self.repository.update_job(
                 job,
                 status="failed",
-                message=f"栅格任务失败：{str(exc)[:400]}",
+                message=f"栅格任务失败：{detail.error}",
                 detail=detail,
             )
 
@@ -261,9 +262,9 @@ class RasterService:
     async def _run_export(self, job) -> None:
         payload = dict(job.payload or {})
         layers = await self.repository.raster_layers([int(value) for value in payload["layer_ids"]])
-        output_dir = ROOT_DIR / ".womap-data" / "raster-exports"
+        output_dir = ROOT_DIR / ".womap-data" / "raster-exports" / job.id
         output_dir.mkdir(parents=True, exist_ok=True)
-        output = output_dir / f"{job.id}.zip"
+        output = output_dir / f"raster-export-{uuid4().hex[:16]}.zip"
         detail = RasterExportJobProgressDetail(stage="exporting", total_layers=len(layers))
         await self.repository.update_job(
             job, status="running", progress=1, message="正在打包栅格成果。", detail=detail
@@ -298,8 +299,12 @@ class RasterService:
         job = await self.repository.get_job(job_id)
         if job is None or job.job_type != "raster-export" or job.status != "done":
             raise KeyError(job_id)
-        path = ROOT_DIR / ".womap-data" / "raster-exports" / f"{job.id}.zip"
-        if not path.is_file():
+        filename = (job.result or {}).get("artifact_name")
+        if not isinstance(filename, str) or Path(filename).name != filename:
+            raise KeyError(job_id)
+        root = (ROOT_DIR / ".womap-data" / "raster-exports" / job.id).resolve()
+        path = (root / filename).resolve()
+        if path.parent != root or not path.is_file():
             raise KeyError(job_id)
         return path, f"womap-raster-{job.id[-12:]}.zip"
 
@@ -330,6 +335,6 @@ class RasterService:
         return RasterCleanupResponse(deleted_assets=deleted, freed_bytes=freed)
 
 
-async def execute_raster_job(job_id: str) -> None:
-    async with AsyncSessionLocal() as session:
+async def execute_raster_job(job_id: str, session_factory=AsyncSessionLocal) -> None:
+    async with session_factory() as session:
         await RasterService(RasterRepository(session)).run_job(job_id)

@@ -29,7 +29,7 @@ import type {
   SpatialAnalysisResult,
 } from '../types/spatialAnalysis';
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 type ExportFormat = 'shp' | 'gdb';
 export const AUTH_UNAUTHORIZED_EVENT = 'womap:auth-unauthorized';
 
@@ -850,11 +850,19 @@ export async function exportLayers(format: ExportFormat, layerIds: number[]) {
     throw new Error(detail);
   }
 
+  return response.json() as Promise<ImportJob>;
+}
+
+export async function downloadVectorExport(jobId: string) {
+  const response = await apiFetch(
+    `${apiBaseUrl}/api/v1/exports/${encodeURIComponent(jobId)}/download`,
+  );
+  if (!response.ok) throw await apiError(response, '矢量成果下载失败');
   return {
     blob: await response.blob(),
     filename: filenameFromDisposition(
       response.headers.get('content-disposition'),
-      `womap-export-${format}.zip`,
+      'womap-vector-export.zip',
     ),
   };
 }

@@ -189,6 +189,7 @@ def test_asset_endpoint_supports_range_suffix_etag_and_416(tmp_path: Path) -> No
     app.dependency_overrides[get_raster_service] = override_service
     client = TestClient(app)
 
+    full = client.get("/api/v1/rasters/9/asset")
     prefix = client.get("/api/v1/rasters/9/asset", headers={"Range": "bytes=2-5"})
     suffix = client.get("/api/v1/rasters/9/asset", headers={"Range": "bytes=-3"})
     cached = client.get(
@@ -196,10 +197,20 @@ def test_asset_endpoint_supports_range_suffix_etag_and_416(tmp_path: Path) -> No
     )
     invalid = client.get("/api/v1/rasters/9/asset", headers={"Range": "bytes=20-30"})
 
+    assert full.status_code == 200
+    assert full.content == b"0123456789"
+    assert full.headers["content-length"] == "10"
+    assert full.headers["accept-ranges"] == "bytes"
+    assert full.headers["etag"] == '"fixture-etag"'
+    assert full.headers["last-modified"] == "Tue, 15 Jul 2026 00:00:00 GMT"
+    assert "content-encoding" not in full.headers
     assert prefix.status_code == 206
-    assert prefix.content == b"2345"
+    assert prefix.content == full.content[2:6]
     assert prefix.headers["content-range"] == "bytes 2-5/10"
-    assert suffix.content == b"789"
+    assert "content-encoding" not in prefix.headers
+    assert suffix.content == full.content[-3:]
+    assert "content-encoding" not in suffix.headers
     assert cached.status_code == 304
+    assert cached.content == b""
     assert invalid.status_code == 416
     assert invalid.headers["content-range"] == "bytes */10"

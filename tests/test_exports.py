@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import zipfile
-from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.features.exports.router import get_export_service
 from app.features.exports.schemas import ExportFormat
+from app.features.jobs.schemas import JobStatus, VectorExportJobProgressDetail
 from app.features.exports.service import (
     ExportDependencyError,
     ExportNoDataError,
@@ -20,18 +20,31 @@ from conftest import allow_test_auth
 
 
 class FakeExportService:
-    def __init__(self, archive: ExportArchive | None = None, error: Exception | None = None) -> None:
-        self.archive = archive
+    def __init__(
+        self,
+        job: JobStatus | None = None,
+        error: Exception | None = None,
+        download: tuple[Path, str] | None = None,
+    ) -> None:
+        self.job = job
         self.error = error
+        self.download = download
         self.calls: list[tuple[ExportFormat, list[int]]] = []
 
-    async def export_layers(self, export_format: ExportFormat, layer_ids: list[int]) -> ExportArchive:
+    async def queue_export(self, export_format: ExportFormat, layer_ids: list[int]) -> JobStatus:
         self.calls.append((export_format, layer_ids))
         if self.error is not None:
             raise self.error
-        if self.archive is None:
-            raise AssertionError("fake archive is required")
-        return self.archive
+        if self.job is None:
+            raise AssertionError("fake job is required")
+        return self.job
+
+    async def download_path(self, job_id: str) -> tuple[Path, str]:
+        if self.error is not None:
+            raise self.error
+        if self.download is None:
+            raise KeyError(job_id)
+        return self.download
 
 
 def build_client(service: FakeExportService) -> TestClient:
@@ -49,18 +62,47 @@ def make_archive(tmp_path: Path) -> ExportArchive:
     return ExportArchive(path=zip_path, cleanup_path=root, filename="womap-export-shp.zip")
 
 
-def test_export_layers_returns_zip_archive(tmp_path: Path) -> None:
-    service = FakeExportService(archive=make_archive(tmp_path))
+def queued_export_job() -> JobStatus:
+    return JobStatus(
+        id="vector-export-test",
+        job_type="vector-export",
+        status="queued",
+        progress=0,
+        message="矢量导出已进入队列。",
+        detail=VectorExportJobProgressDetail(total_layers=2),
+    )
+
+
+def test_export_layers_queues_persistent_job() -> None:
+    service = FakeExportService(job=queued_export_job())
     client = build_client(service)
 
     response = client.post("/api/v1/exports", json={"format": "shp", "layer_ids": [2, 1]})
 
+    assert response.status_code == 202
+    assert response.json()["job_type"] == "vector-export"
+    assert response.json()["detail"]["kind"] == "vector-export"
+    assert service.calls == [("shp", [2, 1])]
+
+
+def test_download_vector_export_returns_completed_artifact(tmp_path: Path) -> None:
+    archive = make_archive(tmp_path)
+    service = FakeExportService(download=(archive.path, archive.filename))
+    response = build_client(service).get("/api/v1/exports/vector-export-test/download")
+
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert 'filename="womap-export-shp.zip"' in response.headers["content-disposition"]
-    assert service.calls == [("shp", [2, 1])]
-    with zipfile.ZipFile(BytesIO(response.content)) as archive:
-        assert "field-map.json" in archive.namelist()
+    with zipfile.ZipFile(archive.path) as source:
+        assert "field-map.json" in source.namelist()
+
+
+def test_download_vector_export_rejects_unfinished_job() -> None:
+    response = build_client(FakeExportService()).get(
+        "/api/v1/exports/vector-export-test/download"
+    )
+
+    assert response.status_code == 404
 
 
 def test_export_layers_rejects_empty_layer_selection() -> None:
@@ -74,7 +116,7 @@ def test_export_layers_rejects_empty_layer_selection() -> None:
 
 
 def test_export_layers_rejects_unknown_format() -> None:
-    service = FakeExportService(archive=None)
+    service = FakeExportService()
     client = build_client(service)
 
     response = client.post("/api/v1/exports", json={"format": "geojson", "layer_ids": [1]})

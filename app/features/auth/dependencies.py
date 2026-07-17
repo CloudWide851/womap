@@ -56,7 +56,7 @@ async def require_csrf(
         return principal
     settings = get_settings()
     origin = request.headers.get("origin")
-    if origin and origin not in settings.server.cors_origins:
+    if origin and origin.rstrip("/") not in settings.server.trusted_origins:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="请求来源不受信任。")
     csrf_cookie = request.cookies.get(csrf_cookie_name(settings.auth.session))
     csrf_header = request.headers.get("x-womap-csrf")

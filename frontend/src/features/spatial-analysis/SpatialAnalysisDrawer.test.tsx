@@ -68,7 +68,6 @@ const doneJob: ImportJob = {
     warnings: [],
     error: null,
   },
-  result: {},
 };
 
 const result: SpatialAnalysisResult = {

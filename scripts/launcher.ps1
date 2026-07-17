@@ -17,6 +17,7 @@ $Script:WebHost = "127.0.0.1"
 $Script:WebPort = 5173
 $Script:ApiUrl = "http://127.0.0.1:8000"
 $Script:WebUrl = "http://127.0.0.1:5173"
+$Script:WorkerShutdownGraceSeconds = 30
 $Script:InteractiveCleanupEnabled = $false
 
 function Get-LauncherConfigPath {
@@ -113,6 +114,10 @@ function Read-LauncherSettings {
     $Script:WebPort = Get-YamlInt "frontend.dev_server.port" 5173
     $Script:ApiUrl = "http://{0}:{1}" -f $Script:ApiHost, $Script:ApiPort
     $Script:WebUrl = "http://{0}:{1}" -f $Script:WebHost, $Script:WebPort
+    $Script:WorkerShutdownGraceSeconds = [Math]::Min(
+        300,
+        (Get-YamlInt "performance.worker.shutdown_grace_seconds" 30)
+    )
 }
 
 function Initialize-State {
@@ -144,6 +149,7 @@ function Format-Status {
         "ok" { return [ConsoleColor]::Green }
         "running" { return [ConsoleColor]::Green }
         "listening" { return [ConsoleColor]::Green }
+        "starting" { return [ConsoleColor]::Yellow }
         "foreground" { return [ConsoleColor]::Green }
         "stopped" { return [ConsoleColor]::Yellow }
         "missing" { return [ConsoleColor]::Red }
@@ -174,6 +180,16 @@ function Get-LogFile {
 function Get-MetadataFile {
     param([string]$Name)
     return (Join-Path $Script:StateRoot ("{0}.json" -f $Name))
+}
+
+function Get-ReadyFile {
+    param([string]$Name)
+    return (Join-Path $Script:StateRoot ("{0}.ready.json" -f $Name))
+}
+
+function Get-StopFile {
+    param([string]$Name)
+    return (Join-Path $Script:StateRoot ("{0}.stop" -f $Name))
 }
 
 function Test-CommandExists {
@@ -215,9 +231,9 @@ function Test-PortOpen {
 function Get-PortProcessIds {
     param([int]$Port)
     $ids = @()
-    $pattern = ":{0}\s+.*LISTENING\s+(\d+)" -f $Port
+    $pattern = ":{0}\s+.*(?:LISTENING|BOUND)\s+(\d+)" -f $Port
     try {
-        $lines = & netstat.exe -ano -p tcp 2>$null
+        $lines = & netstat.exe -anoq -p tcp 2>$null
         foreach ($line in $lines) {
             if ($line -match $pattern) {
                 $ids += [int]$Matches[1]
@@ -232,10 +248,21 @@ function Get-PortProcessIds {
 
 function Get-ServiceHost {
     param([string]$Name)
-    if ($Name -eq "api") {
+    if ($Name -like "*api") {
         return $Script:ApiHost
     }
     return $Script:WebHost
+}
+
+function Get-ServicePort {
+    param([string]$Name)
+    if ($Name -like "*api") {
+        return $Script:ApiPort
+    }
+    if ($Name -like "*web") {
+        return $Script:WebPort
+    }
+    return 0
 }
 
 function Get-RecordedProcess {
@@ -282,6 +309,14 @@ function Remove-ServiceRecord {
     if (Test-Path -LiteralPath $metadataFile) {
         Remove-Item -LiteralPath $metadataFile -Force
     }
+    $readyFile = Get-ReadyFile $Name
+    if (Test-Path -LiteralPath $readyFile) {
+        Remove-Item -LiteralPath $readyFile -Force
+    }
+    $stopFile = Get-StopFile $Name
+    if (Test-Path -LiteralPath $stopFile) {
+        Remove-Item -LiteralPath $stopFile -Force
+    }
 }
 
 function Stop-ProcessTree {
@@ -309,15 +344,24 @@ function Stop-ProcessTree {
 }
 
 function Get-ServiceStatus {
-    param(
-        [string]$Name,
-        [int]$Port
-    )
+    param([string]$Name)
+    $port = Get-ServicePort $Name
     $process = Get-RecordedProcess $Name
     if ($null -ne $process) {
-        return "running"
+        if ($port -gt 0 -and (Test-PortOpen (Get-ServiceHost $Name) $port)) {
+            return "running"
+        }
+        if ($port -eq 0 -and (Test-Path -LiteralPath (Get-ReadyFile $Name))) {
+            return "running"
+        }
+        return "starting"
     }
-    if (Test-PortOpen (Get-ServiceHost $Name) $Port) {
+    if (
+        $port -gt 0 -and (
+            (Test-PortOpen (Get-ServiceHost $Name) $port) -or
+            @(Get-PortProcessIds $port).Count -gt 0
+        )
+    ) {
         return "listening"
     }
     return "stopped"
@@ -382,20 +426,84 @@ function Start-HiddenCommand {
     return (Get-Process -Id $process.Id -ErrorAction Stop)
 }
 
+function Get-ServiceUrl {
+    param([string]$Name)
+    if ($Name -like "*api") {
+        return $Script:ApiUrl
+    }
+    if ($Name -like "*web") {
+        return $Script:WebUrl
+    }
+    return "local queue"
+}
+
+function Test-ServiceReady {
+    param([string]$Name)
+    if ($Name -like "*worker") {
+        $readyFile = Get-ReadyFile $Name
+        if (-not (Test-Path -LiteralPath $readyFile)) {
+            return $false
+        }
+        try {
+            $ready = Get-Content -LiteralPath $readyFile -Raw | ConvertFrom-Json
+            return ($ready.status -eq "ready" -and [int]$ready.pid -gt 0)
+        }
+        catch {
+            return $false
+        }
+    }
+    if ($Name -like "*api") {
+        try {
+            $response = Invoke-WebRequest `
+                -Uri ("{0}/health/ready" -f $Script:ApiUrl) `
+                -UseBasicParsing `
+                -TimeoutSec 2
+            if ($response.StatusCode -ne 200) {
+                return $false
+            }
+            $body = $response.Content | ConvertFrom-Json
+            return ($body.status -eq "ready")
+        }
+        catch {
+            return $false
+        }
+    }
+    return (Test-PortOpen (Get-ServiceHost $Name) (Get-ServicePort $Name))
+}
+
 function Open-WebUrl {
-    & cmd.exe /c start "" $Script:WebUrl
+    param([string]$Url = "")
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        $Url = if ((Get-ServiceStatus "run-api") -eq "running") {
+            $Script:ApiUrl
+        }
+        else {
+            $Script:WebUrl
+        }
+    }
+    & cmd.exe /c start "" $Url
 }
 
 function Start-DetachedPowerShell {
     param(
         [string]$Name,
-        [string]$EncodedCommand
+        [string]$EncodedCommand,
+        [ValidateSet("Normal", "BelowNormal")]
+        [string]$PriorityClass = "Normal"
     )
-    return (Start-Process `
+    $process = Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $EncodedCommand) `
         -WindowStyle Minimized `
-        -PassThru)
+        -PassThru
+    try {
+        $process.PriorityClass = $PriorityClass
+    }
+    catch {
+        Stop-CapturedProcessTree -CapturedProcess $process
+        throw ("Unable to apply {0} priority to {1}." -f $PriorityClass, $Name)
+    }
+    return $process
 }
 
 function Stop-CapturedProcessTree {
@@ -426,17 +534,30 @@ function Start-ManagedProcess {
     param(
         [string]$Name,
         [string]$WorkingDirectory,
-        [string]$PowerShellLine
+        [string]$PowerShellLine,
+        [ValidateSet("development", "production")]
+        [string]$RuntimeMode,
+        [bool]$WorkerEnabled,
+        [ValidateSet("Normal", "BelowNormal")]
+        [string]$PriorityClass = "Normal",
+        [switch]$UsePersistentShell,
+        [int]$ReadinessTimeoutSeconds = 30
     )
     Initialize-State
 
-    $port = if ($Name -eq "api") { $Script:ApiPort } else { $Script:WebPort }
-    $hostName = Get-ServiceHost $Name
     Clear-StaleServiceRecord $Name
-    $status = Get-ServiceStatus $Name $port
+    if ($Name -like "*worker") {
+        $otherWorker = if ($Name -eq "run-worker") { "dev-worker" } else { "run-worker" }
+        Clear-StaleServiceRecord $otherWorker
+        if ((Get-ServiceStatus $otherWorker) -in @("running", "starting")) {
+            Write-Check $Name "listening" ("{0} already owns the durable queue" -f $otherWorker)
+            return "listening"
+        }
+    }
+    $status = Get-ServiceStatus $Name
     if ($status -ne "stopped") {
-        Write-Check $Name $status ("already available at {0}:{1}" -f $hostName, $port)
-        return
+        Write-Check $Name $status ("already available at {0}" -f (Get-ServiceUrl $Name))
+        return $status
     }
 
     $logFile = Get-LogFile $Name
@@ -447,8 +568,11 @@ function Start-ManagedProcess {
 try {
 Set-Location -LiteralPath $(ConvertTo-QuotedPowerShell $WorkingDirectory)
 `$env:UV_CACHE_DIR = $(ConvertTo-QuotedPowerShell $Script:UvCacheRoot)
+`$env:WOMAP_RUNTIME_MODE = $(ConvertTo-QuotedPowerShell $RuntimeMode)
+`$env:WOMAP_WORKER_ENABLED = $(ConvertTo-QuotedPowerShell $(if ($WorkerEnabled) { "true" } else { "false" }))
 Set-Content -LiteralPath $(ConvertTo-QuotedPowerShell $pidFile) -Value `$PID -Encoding ASCII
 `$launcherProcess = Get-Process -Id `$PID
+`$launcherProcess.PriorityClass = $(ConvertTo-QuotedPowerShell $PriorityClass)
 `$metadata = [ordered]@{
     name = $(ConvertTo-QuotedPowerShell $Name)
     pid = `$PID
@@ -459,7 +583,7 @@ Set-Content -LiteralPath $(ConvertTo-QuotedPowerShell $pidFile) -Value `$PID -En
 `$metadata | ConvertTo-Json | Set-Content -LiteralPath $(ConvertTo-QuotedPowerShell $metadataFile) -Encoding UTF8
 ("Starting $Name at " + (Get-Date).ToString("s")) | Out-File -LiteralPath $(ConvertTo-QuotedPowerShell $logFile) -Encoding UTF8
 `$ErrorActionPreference = "Continue"
-& cmd.exe /d /s /k $(ConvertTo-QuotedPowerShell ("chcp 65001 > nul && " + $PowerShellLine + " >> `"$logFile`" 2>&1"))
+& cmd.exe /d /s $(if ($UsePersistentShell) { "/k" } else { "/c" }) $(ConvertTo-QuotedPowerShell ("chcp 65001 > nul && " + $PowerShellLine + " >> `"$logFile`" 2>&1"))
 `$commandExit = if (`$null -eq `$LASTEXITCODE) { 0 } else { `$LASTEXITCODE }
 ("$Name exited with code " + `$commandExit + " at " + (Get-Date).ToString("s")) | Out-File -LiteralPath $(ConvertTo-QuotedPowerShell $logFile) -Append -Encoding UTF8
 exit `$commandExit
@@ -474,7 +598,10 @@ catch {
     Remove-ServiceRecord $Name
     $launchedProcess = $null
     try {
-        $launchedProcess = Start-DetachedPowerShell -Name $Name -EncodedCommand $encoded
+        $launchedProcess = Start-DetachedPowerShell `
+            -Name $Name `
+            -EncodedCommand $encoded `
+            -PriorityClass $PriorityClass
     }
     catch {
         Stop-CapturedProcessTree -CapturedProcess $launchedProcess
@@ -483,18 +610,18 @@ catch {
         throw
     }
 
-    $deadline = (Get-Date).AddSeconds(20)
+    $deadline = (Get-Date).AddSeconds($ReadinessTimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         $process = Get-RecordedProcess $Name
-        if ((Test-Path -LiteralPath (Get-MetadataFile $Name)) -and (Test-PortOpen $hostName $port)) {
+        if ($null -ne $process -and (Test-ServiceReady $Name)) {
             $detail = if ($null -ne $process) {
-                "pid={0}; url={1}; log={2}" -f $process.Id, $(if ($Name -eq "api") { $Script:ApiUrl } else { $Script:WebUrl }), $logFile
-            }
-            else {
-                "url={0}; log={1}" -f $(if ($Name -eq "api") { $Script:ApiUrl } else { $Script:WebUrl }), $logFile
+                "pid={0}; endpoint={1}; log={2}" -f $process.Id, (Get-ServiceUrl $Name), $logFile
             }
             Write-Check $Name "running" $detail
-            return
+            return "started"
+        }
+        if ((Test-Path -LiteralPath (Get-MetadataFile $Name)) -and $null -eq $process) {
+            break
         }
         Start-Sleep -Milliseconds 500
     }
@@ -524,27 +651,77 @@ function Start-Api {
 
     & $MigrationAction
     Start-ManagedProcess `
-        -Name "api" `
+        -Name "dev-api" `
         -WorkingDirectory $Script:Root `
-        -PowerShellLine ("uv run uvicorn app.main:app --host {0} --port {1} --reload" -f $Script:ApiHost, $Script:ApiPort)
+        -PowerShellLine ("uv run uvicorn app.main:app --host {0} --port {1} --reload" -f $Script:ApiHost, $Script:ApiPort) `
+        -RuntimeMode "development" `
+        -WorkerEnabled $true `
+        -UsePersistentShell
 }
 
 function Start-Web {
     Start-ManagedProcess `
-        -Name "web" `
+        -Name "dev-web" `
         -WorkingDirectory (Join-Path $Script:Root "frontend") `
-        -PowerShellLine ("pnpm dev --host {0} --port {1}" -f $Script:WebHost, $Script:WebPort)
+        -PowerShellLine ("pnpm dev --host {0} --port {1}" -f $Script:WebHost, $Script:WebPort) `
+        -RuntimeMode "development" `
+        -WorkerEnabled $true `
+        -UsePersistentShell
+}
+
+function Start-DevelopmentWorker {
+    $readyFile = Get-ReadyFile "dev-worker"
+    $stopFile = Get-StopFile "dev-worker"
+    Start-ManagedProcess `
+        -Name "dev-worker" `
+        -WorkingDirectory $Script:Root `
+        -PowerShellLine ("uv run python -m app.features.jobs.worker --ready-file `"{0}`" --stop-file `"{1}`"" -f $readyFile, $stopFile) `
+        -RuntimeMode "development" `
+        -WorkerEnabled $true `
+        -PriorityClass "BelowNormal"
+}
+
+function Start-ProductionApi {
+    Start-ManagedProcess `
+        -Name "run-api" `
+        -WorkingDirectory $Script:Root `
+        -PowerShellLine ("uv run uvicorn app.main:app --host {0} --port {1}" -f $Script:ApiHost, $Script:ApiPort) `
+        -RuntimeMode "production" `
+        -WorkerEnabled $true `
+        -PriorityClass "Normal"
+}
+
+function Start-ProductionWorker {
+    $readyFile = Get-ReadyFile "run-worker"
+    $stopFile = Get-StopFile "run-worker"
+    Start-ManagedProcess `
+        -Name "run-worker" `
+        -WorkingDirectory $Script:Root `
+        -PowerShellLine ("uv run python -m app.features.jobs.worker --ready-file `"{0}`" --stop-file `"{1}`"" -f $readyFile, $stopFile) `
+        -RuntimeMode "production" `
+        -WorkerEnabled $true `
+        -PriorityClass "BelowNormal"
+}
+
+function Start-Worker {
+    param(
+        [scriptblock]$MigrationAction = { Invoke-ApiMigrations }
+    )
+    & $MigrationAction
+    return (Start-ProductionWorker)
 }
 
 function Start-DevelopmentServices {
     param(
         [scriptblock]$ApiStartAction = { Start-Api },
+        [scriptblock]$WorkerStartAction = { Start-DevelopmentWorker },
         [scriptblock]$WebStartAction = { Start-Web }
     )
     $failures = @()
     $services = @(
-        @{ Name = "api"; Action = $ApiStartAction },
-        @{ Name = "web"; Action = $WebStartAction }
+        @{ Name = "dev-api"; Action = $ApiStartAction },
+        @{ Name = "dev-worker"; Action = $WorkerStartAction },
+        @{ Name = "dev-web"; Action = $WebStartAction }
     )
 
     foreach ($service in $services) {
@@ -565,20 +742,78 @@ function Start-DevelopmentServices {
     return 0
 }
 
+function Start-ProductionServices {
+    param(
+        [scriptblock]$BuildAction = { Invoke-Build },
+        [scriptblock]$MigrationAction = { Invoke-ApiMigrations },
+        [scriptblock]$ApiStartAction = { Start-ProductionApi },
+        [scriptblock]$WorkerStartAction = { Start-ProductionWorker },
+        [scriptblock]$BrowserAction = { Open-WebUrl -Url $Script:ApiUrl }
+    )
+    $started = [System.Collections.Generic.List[string]]::new()
+    try {
+        & $BuildAction | Out-Host
+        & $MigrationAction | Out-Host
+
+        $apiResult = & $ApiStartAction
+        if ($apiResult -in @("listening", "starting")) {
+            throw ("run-api is not owned by this launcher: {0}" -f $apiResult)
+        }
+        if ($apiResult -eq "started") {
+            [void]$started.Add("run-api")
+        }
+
+        $workerResult = & $WorkerStartAction
+        if ($workerResult -in @("listening", "starting")) {
+            throw ("run-worker is not owned by this launcher: {0}" -f $workerResult)
+        }
+        if ($workerResult -eq "started") {
+            [void]$started.Add("run-worker")
+        }
+
+        $null = & $BrowserAction
+        return 0
+    }
+    catch {
+        $message = $_.Exception.Message
+        for ($index = $started.Count - 1; $index -ge 0; $index--) {
+            Stop-ManagedProcess $started[$index]
+        }
+        Write-Check "run" "failed" $message
+        return 1
+    }
+}
+
 function Stop-ManagedProcess {
     param([string]$Name)
     $pidFile = Get-PidFile $Name
     $metadataFile = Get-MetadataFile $Name
-    $port = if ($Name -eq "api") { $Script:ApiPort } else { $Script:WebPort }
-    $hostName = Get-ServiceHost $Name
+    $port = Get-ServicePort $Name
     $process = Get-RecordedProcess $Name
     if ($null -ne $process) {
-        Stop-ProcessTree -RootProcessId $process.Id
-        Write-Check $Name "stopped" ("stopped pid={0}" -f $process.Id)
-        Start-Sleep -Milliseconds 350
-        foreach ($listenerId in (Get-PortProcessIds $port)) {
-            Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
-            Write-Check $Name "stopped" ("stopped orphan listener pid={0}" -f $listenerId)
+        if ($Name -like "*worker") {
+            Set-Content -LiteralPath (Get-StopFile $Name) -Value "stop" -Encoding ASCII
+            $deadline = (Get-Date).AddSeconds($Script:WorkerShutdownGraceSeconds)
+            while ((Get-Date) -lt $deadline -and $null -ne (Get-RecordedProcess $Name)) {
+                Start-Sleep -Milliseconds 250
+            }
+            $remaining = Get-RecordedProcess $Name
+            if ($null -ne $remaining) {
+                Stop-ProcessTree -RootProcessId $remaining.Id
+                Write-Check $Name "stopped" ("grace period expired; stopped pid={0}" -f $remaining.Id)
+            }
+            else {
+                Write-Check $Name "stopped" ("worker exited cooperatively; pid={0}" -f $process.Id)
+            }
+        }
+        else {
+            Stop-ProcessTree -RootProcessId $process.Id
+            Write-Check $Name "stopped" ("stopped pid={0}" -f $process.Id)
+            Start-Sleep -Milliseconds 350
+            foreach ($listenerId in (Get-PortProcessIds $port)) {
+                Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
+                Write-Check $Name "stopped" ("stopped orphan listener pid={0}" -f $listenerId)
+            }
         }
     }
     if ($null -eq $process -and (Test-Path -LiteralPath $pidFile)) {
@@ -593,14 +828,15 @@ function Stop-ManagedProcess {
         Write-Check $Name "stopped" "no recorded process"
     }
     Remove-ServiceRecord $Name
-    if (Test-PortOpen $hostName $port) {
-        Write-Check $Name "listening" ("external or orphan listener remains at {0}:{1}" -f $hostName, $port)
+    if ($port -gt 0 -and (Test-PortOpen (Get-ServiceHost $Name) $port)) {
+        Write-Check $Name "listening" ("external or orphan listener remains at {0}" -f (Get-ServiceUrl $Name))
     }
 }
 
 function Stop-AllManagedServices {
-    Stop-ManagedProcess "api"
-    Stop-ManagedProcess "web"
+    foreach ($name in @("run-worker", "dev-worker", "dev-web", "web", "run-api", "dev-api", "api")) {
+        Stop-ManagedProcess $name
+    }
 }
 
 function Enable-InteractiveCleanup {
@@ -657,12 +893,18 @@ function Invoke-Doctor {
         }
     }
 
-    $apiStatus = Get-ServiceStatus "api" $Script:ApiPort
-    $webStatus = Get-ServiceStatus "web" $Script:WebPort
+    $runApiStatus = Get-ServiceStatus "run-api"
+    $runWorkerStatus = Get-ServiceStatus "run-worker"
+    $devApiStatus = Get-ServiceStatus "dev-api"
+    $devWorkerStatus = Get-ServiceStatus "dev-worker"
+    $devWebStatus = Get-ServiceStatus "dev-web"
     $redisStatus = if (Test-PortOpen "localhost" 6379) { "ok" } else { "stopped" }
     $postgresStatus = if (Test-PortOpen "localhost" 5432) { "ok" } else { "stopped" }
-    Write-Check "api port" $apiStatus ("{0}:{1}" -f $Script:ApiHost, $Script:ApiPort)
-    Write-Check "web port" $webStatus ("{0}:{1}" -f $Script:WebHost, $Script:WebPort)
+    Write-Check "production api" $runApiStatus $Script:ApiUrl
+    Write-Check "production worker" $runWorkerStatus "durable PostgreSQL queue"
+    Write-Check "development api" $devApiStatus $Script:ApiUrl
+    Write-Check "development worker" $devWorkerStatus "durable PostgreSQL queue"
+    Write-Check "development web" $devWebStatus $Script:WebUrl
     Write-Check "redis port" $redisStatus "localhost:6379"
     Write-Check "postgres port" $postgresStatus "localhost:5432"
 
@@ -696,17 +938,22 @@ function Show-Overview {
     Write-Host ("Config:  {0}" -f $Script:ConfigSource)
     Write-Host ("Logs:    {0}" -f (Join-Path $Script:StateRoot "logs"))
     Write-Host ""
-    Write-Host ("{0,-10} {1,-12} {2}" -f "Service", "Status", "Endpoint")
-    Write-Host ("{0,-10} {1,-12} {2}" -f "API", (Get-ServiceStatus "api" $Script:ApiPort), $Script:ApiUrl)
-    Write-Host ("{0,-10} {1,-12} {2}" -f "Web", (Get-ServiceStatus "web" $Script:WebPort), $Script:WebUrl)
-    Write-Host ("{0,-10} {1,-12} {2}" -f "Redis", $(if (Test-PortOpen "localhost" 6379) { "ok" } else { "stopped" }), "localhost:6379 db=0")
+    Write-Host ("{0,-12} {1,-12} {2}" -f "Service", "Status", "Endpoint")
+    Write-Host ("{0,-12} {1,-12} {2}" -f "run-api", (Get-ServiceStatus "run-api"), $Script:ApiUrl)
+    Write-Host ("{0,-12} {1,-12} {2}" -f "run-worker", (Get-ServiceStatus "run-worker"), "durable queue")
+    Write-Host ("{0,-12} {1,-12} {2}" -f "dev-api", (Get-ServiceStatus "dev-api"), $Script:ApiUrl)
+    Write-Host ("{0,-12} {1,-12} {2}" -f "dev-worker", (Get-ServiceStatus "dev-worker"), "durable queue")
+    Write-Host ("{0,-12} {1,-12} {2}" -f "dev-web", (Get-ServiceStatus "dev-web"), $Script:WebUrl)
+    Write-Host ("{0,-12} {1,-12} {2}" -f "Redis", $(if (Test-PortOpen "localhost" 6379) { "ok" } else { "stopped" }), "localhost:6379 db=0")
     Write-Host ""
     Write-Host "Commands"
     Write-Host ("  {0,-8} {1}" -f "status", "refresh this panel")
     Write-Host ("  {0,-8} {1}" -f "doctor", "run local diagnostics")
-    Write-Host ("  {0,-8} {1}" -f "api", "start FastAPI backend")
-    Write-Host ("  {0,-8} {1}" -f "web", "start Vite frontend")
-    Write-Host ("  {0,-8} {1}" -f "dev", "start API and Web")
+    Write-Host ("  {0,-8} {1}" -f "run", "build and start production API + Worker")
+    Write-Host ("  {0,-8} {1}" -f "worker", "start production Worker only")
+    Write-Host ("  {0,-8} {1}" -f "api", "start development FastAPI backend")
+    Write-Host ("  {0,-8} {1}" -f "web", "start development Vite frontend")
+    Write-Host ("  {0,-8} {1}" -f "dev", "start development API + Worker + Web")
     Write-Host ("  {0,-8} {1}" -f "open", "open Web URL")
     Write-Host ("  {0,-8} {1}" -f "stop", "stop launcher-managed services")
     Write-Host ("  {0,-8} {1}" -f "test", "run backend and frontend checks")
@@ -734,6 +981,8 @@ function Invoke-CommandName {
         "status" { Show-Overview; return 0 }
         "overview" { Show-Overview; return 0 }
         "doctor" { return (Invoke-Doctor) }
+        "run" { return (Start-ProductionServices) }
+        "worker" { $result = Start-Worker; return $(if ($result -eq "listening") { 1 } else { 0 }) }
         "api" { Start-Api; return 0 }
         "web" { Start-Web; return 0 }
         "dev" { return (Start-DevelopmentServices) }

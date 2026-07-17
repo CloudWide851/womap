@@ -75,12 +75,23 @@ class RasterExportJobProgressDetail(BaseModel):
     error: str | None = None
 
 
+class VectorExportJobProgressDetail(BaseModel):
+    kind: Literal["vector-export"] = "vector-export"
+    stage: str = "queued"
+    processed_layers: int = 0
+    total_layers: int = 0
+    artifact_name: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 JobDetail = Annotated[
     JobProgressDetail
     | WorkspacePackageJobProgressDetail
     | SpatialAnalysisJobProgressDetail
     | RasterJobProgressDetail
-    | RasterExportJobProgressDetail,
+    | RasterExportJobProgressDetail
+    | VectorExportJobProgressDetail,
     Field(discriminator="kind"),
 ]
 

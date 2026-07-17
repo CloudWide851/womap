@@ -45,6 +45,7 @@ import {
 import type { LocalRuntimeSettings, LocalRuntimeSettingsUpdate } from '../services/api';
 import { formatRemainingTime, useAuthStore } from '../stores/useAuthStore';
 import { useMapStore } from '../stores/useMapStore';
+import { useJobsStore } from '../stores/useJobsStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useWorkspaceStore } from '../stores/useWorkspaceStore';
 import { useWorkspaceContextStore } from '../stores/useWorkspaceContextStore';
@@ -258,6 +259,7 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
   const undoEdit = useWorkspaceStore((state) => state.undoEdit);
   const redoEdit = useWorkspaceStore((state) => state.redoEdit);
   const showNotice = useWorkspaceStore((state) => state.showNotice);
+  const upsertJob = useJobsStore((state) => state.upsert);
   const currentWorkspace = useWorkspaceContextStore((state) => state.current);
   const workspaceDirty = useWorkspaceContextStore((state) => state.dirty);
   const workspaceDrawerOpen = useWorkspaceContextStore((state) => state.drawerOpen);
@@ -400,18 +402,13 @@ export function TopToolbar({ onOpenSettings }: TopToolbarProps) {
     });
 
     try {
-      const result = await exportLayers(exportFormat, backendLayerIds);
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = result.filename;
-      link.click();
-      URL.revokeObjectURL(url);
+      const job = await exportLayers(exportFormat, backendLayerIds);
+      upsertJob(job);
       setExportOpen(false);
       showNotice({
         tone: 'success',
-        title: `${exportFormat.toUpperCase()} 导出完成`,
-        detail: result.filename,
+        title: `${exportFormat.toUpperCase()} 导出已进入队列`,
+        detail: '可在任务面板查看进度，完成后下载 zip 文件。',
       });
     } catch (error) {
       showNotice({

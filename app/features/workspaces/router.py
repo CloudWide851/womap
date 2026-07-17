@@ -2,7 +2,6 @@ from collections.abc import AsyncGenerator
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Body,
     Depends,
     File,
@@ -20,7 +19,6 @@ from app.features.workspaces.package_repository import WorkspacePackageRepositor
 from app.features.workspaces.package_service import (
     WorkspacePackageConflictError,
     WorkspacePackageService,
-    execute_workspace_package_job,
 )
 from app.features.workspaces.schemas import (
     WorkspaceCatalogResponse,
@@ -85,7 +83,6 @@ async def get_workspace_catalog(
 )
 async def export_workspace_package(
     workspace_id: int,
-    background_tasks: BackgroundTasks,
     payload: WorkspacePackageExportRequest | None = Body(default=None),
     service: WorkspacePackageService = Depends(get_workspace_package_service),
 ):
@@ -96,7 +93,6 @@ async def export_workspace_package(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="工作空间不存在。") from exc
-    background_tasks.add_task(execute_workspace_package_job, job.id)
     return job
 
 
@@ -130,7 +126,6 @@ async def preview_workspace_package(
 @router.post("/packages/imports", status_code=status.HTTP_202_ACCEPTED)
 async def import_workspace_package(
     payload: WorkspacePackageImportRequest,
-    background_tasks: BackgroundTasks,
     service: WorkspacePackageService = Depends(get_workspace_package_service),
 ):
     try:
@@ -139,7 +134,6 @@ async def import_workspace_package(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except WorkspacePackageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    background_tasks.add_task(execute_workspace_package_job, job.id)
     return job
 
 
