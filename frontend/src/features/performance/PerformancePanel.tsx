@@ -1,10 +1,22 @@
 import { Tooltip } from 'antd';
-import { DatabaseZap, Gauge, Layers3, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { memo } from 'react';
+import {
+  Cpu,
+  DatabaseZap,
+  Gauge,
+  HardDrive,
+  Layers3,
+  MonitorCog,
+  ShieldCheck,
+  TriangleAlert,
+} from 'lucide-react';
+import { memo, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { getPerformanceCapabilities } from '../../services/api';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import type { BrowserWebGLCapability, PerformanceCapabilitySummary } from '../../types/performance';
 import type { LayerPerformanceState } from '../../types/workspace';
+import { detectWebGLCapabilities } from './webgl';
 
 interface PerformanceMetricProps {
   icon: ReactNode;
@@ -37,10 +49,62 @@ function getStrategyLabel(strategy?: LayerPerformanceState['recommendedMode']) {
   return 'bbox';
 }
 
+function profileLabel(profile?: PerformanceCapabilitySummary['profile']['resolved']) {
+  if (profile === 'high') return '高性能';
+  if (profile === 'balanced') return '均衡';
+  if (profile === 'low') return '低配';
+  return '检查中';
+}
+
+function webglLabel(capability: BrowserWebGLCapability) {
+  if (capability.status === 'checking') return '检查中';
+  if (capability.status === 'unavailable') return '不可用';
+  return capability.version === 2 ? 'WebGL 2' : 'WebGL 1';
+}
+
+function memoryLabel(bytes: number | null | undefined) {
+  return bytes == null ? '未知' : `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+}
+
 export function PerformancePanel() {
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const layer = layers.find((item) => item.id === selectedLayerId);
+  const [capabilities, setCapabilities] = useState<PerformanceCapabilitySummary | null>(null);
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const [webgl, setWebgl] = useState<BrowserWebGLCapability>({
+    status: 'checking',
+    version: null,
+    rendererStatus: 'unknown',
+    vendor: null,
+    renderer: null,
+  });
+
+  useEffect(() => {
+    setWebgl(detectWebGLCapabilities());
+    const controller = new AbortController();
+    void getPerformanceCapabilities(controller.signal)
+      .then((response) => {
+        setCapabilities(response);
+        setCapabilityError(null);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setCapabilityError(error instanceof Error ? error.message : '性能能力加载失败');
+      });
+    return () => controller.abort();
+  }, []);
+
+  const capabilityWarning =
+    capabilityError ??
+    capabilities?.warning ??
+    (webgl.status === 'unavailable' ? '浏览器 WebGL 不可用，地图将无法使用 GPU 渲染。' : null);
+  const rendererLabel =
+    webgl.rendererStatus === 'available'
+      ? (webgl.renderer ?? webgl.vendor ?? '已开放')
+      : webgl.rendererStatus === 'restricted'
+        ? '隐私限制'
+        : '未知';
 
   return (
     <section className="map-toolbox-section map-toolbox-performance" aria-label="性能内容">
@@ -59,17 +123,67 @@ export function PerformancePanel() {
           label="加载策略"
           value={getStrategyLabel(layer?.performance.recommendedMode)}
         />
+        <PerformanceMetric
+          icon={<HardDrive size={16} aria-hidden="true" />}
+          label="资源档位"
+          value={profileLabel(capabilities?.profile.resolved)}
+        />
+        <PerformanceMetric
+          icon={<MonitorCog size={16} aria-hidden="true" />}
+          label="地图 GPU"
+          value={webglLabel(webgl)}
+        />
+      </div>
+      <div className="performance-diagnostics" aria-label="性能诊断摘要">
+        <div>
+          <Cpu size={14} aria-hidden="true" />
+          <span>CPU / 可用内存</span>
+          <strong>
+            {capabilities
+              ? `${capabilities.cpuLogicalCores} 线程 / ${memoryLabel(capabilities.availableMemoryBytes)}`
+              : '检查中'}
+          </strong>
+        </div>
+        <div>
+          <MonitorCog size={14} aria-hidden="true" />
+          <span>WebGL 渲染器</span>
+          <strong title={rendererLabel}>{rendererLabel}</strong>
+        </div>
+        <div>
+          <Gauge size={14} aria-hidden="true" />
+          <span>原生计算</span>
+          <strong>
+            {capabilities?.gpu.executionEnabled
+              ? 'GPU 已启用'
+              : capabilities?.gpu.count
+                ? 'GPU 待基准 / CPU 生效'
+                : 'CPU 生效'}
+          </strong>
+        </div>
+        <div>
+          <DatabaseZap size={14} aria-hidden="true" />
+          <span>GDAL 诊断预算</span>
+          <strong>
+            {capabilities
+              ? `${capabilities.profile.gdalThreads} 线程 / ${capabilities.profile.gdalCacheMiB} MiB`
+              : '检查中'}
+          </strong>
+        </div>
       </div>
       <div
-        className={`performance-hint ${layer?.performance.warning ? 'is-warning' : 'is-ok'}`}
+        className={`performance-hint ${layer?.performance.warning || capabilityWarning ? 'is-warning' : 'is-ok'}`}
         role="status"
       >
-        {layer?.performance.warning ? (
+        {layer?.performance.warning || capabilityWarning ? (
           <TriangleAlert size={16} aria-hidden="true" />
         ) : (
           <ShieldCheck size={16} aria-hidden="true" />
         )}
-        <span>{layer?.performance.warning ?? '当前图层可按视口安全加载。'}</span>
+        <span>
+          {layer?.performance.warning ??
+            capabilityWarning ??
+            'WebGL 负责地图渲染；原生 GPU 计算仍受正确性与 1.5× 端到端门槛保护。'}
+        </span>
       </div>
     </section>
   );

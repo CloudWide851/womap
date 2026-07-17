@@ -16,6 +16,10 @@ frontend:
     host: 127.0.0.1
     port: 5173
 
+runtime:
+  # Gate 1 仅报告运行模式；production 模式将在后续独立交付中接入启动器。
+  mode: development
+
 imports:
   cache_path: .womap-data/import-cache
   batch_size: 2000
@@ -119,9 +123,47 @@ maps:
       enabled: false
 
 performance:
+  # auto 会按逻辑 CPU 与可用内存选择保守档位；本阶段只生成诊断预算，不改变系统全局设置。
+  profile: auto
   max_features_per_request: 5000
   default_bbox_limit: 1000
   simplify_tolerance: 0.00001
   cache_ttl_seconds: 120
   large_layer_feature_threshold: 50000
   tile_feature_threshold: 10000
+  api:
+    worker_count: 1
+    database_pool_size: null
+    database_max_overflow: null
+    database_timeout_seconds: 30
+    database_recycle_seconds: 1800
+  worker:
+    enabled: false
+    concurrency: null
+    poll_interval_seconds: 1.0
+    lease_seconds: 120
+    heartbeat_seconds: 30
+    shutdown_grace_seconds: 30
+  gdal:
+    cache_mib: null
+    thread_cap: null
+    dataset_pool_size: null
+    formula_window_budget_mib: null
+    scratch_reserve_gib: 5
+  browser:
+    vector_limit: null
+    bbox_debounce_ms: null
+    webgl_texture_cache: null
+    geotiff_cache_size: null
+  cache:
+    enabled: false
+    namespace: womap:performance
+    ttl_seconds: 120
+    max_entry_kib: 256
+    fail_open: true
+  gpu:
+    # CPU 是权威路径；auto/cupy 只有在后续本机正确性与 >=1.5x 端到端门槛通过后才会执行。
+    backend: cpu
+    device_index: 0
+    memory_fraction: 0.5
+    minimum_speedup: 1.5

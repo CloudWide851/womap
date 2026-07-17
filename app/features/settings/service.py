@@ -77,6 +77,7 @@ class SettingsService:
                 warn_before_expire_minutes=auth.dynamic_update.warn_before_expire_minutes,
             ),
             performance=RuntimePerformanceSettings(
+                profile=performance.profile,
                 max_features_per_request=performance.max_features_per_request,
                 default_bbox_limit=performance.default_bbox_limit,
                 simplify_tolerance=performance.simplify_tolerance,

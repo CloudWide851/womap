@@ -106,6 +106,8 @@ class ImportOptionsUpdate(BaseModel):
 
 
 class RuntimePerformanceSettings(BaseModel):
+    profile: Literal["auto", "low", "balanced", "high"]
+    enforcement: Literal["diagnostic"] = "diagnostic"
     max_features_per_request: int
     default_bbox_limit: int
     simplify_tolerance: float

@@ -1405,6 +1405,39 @@
   font-size: 0.72rem;
 }
 
+.performance-diagnostics {
+  display: grid;
+  gap: 1px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-line);
+  contain: content;
+}
+
+.performance-diagnostics > div {
+  display: grid;
+  grid-template-columns: 16px minmax(86px, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  font-size: 0.69rem;
+}
+
+.performance-diagnostics strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 680;
+}
+
 .performance-hint.is-ok {
   border-color: color-mix(in oklch, var(--color-success) 36%, var(--color-line));
   color: var(--color-success);

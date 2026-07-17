@@ -43,6 +43,12 @@ class FrontendSettings(BaseModel):
     dev_server: FrontendDevServerSettings = Field(default_factory=FrontendDevServerSettings)
 
 
+class ApplicationRuntimeSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    mode: Literal["development", "production"] = "development"
+
+
 class DatabasePoolSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -254,20 +260,209 @@ class MapsSettings(BaseModel):
         return [provider for provider in self.providers if provider.enabled]
 
 
+class PerformanceApiSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    worker_count: int = Field(default=1, ge=1, le=4)
+    database_pool_size: int | None = Field(default=None, ge=1, le=32)
+    database_max_overflow: int | None = Field(default=None, ge=0, le=32)
+    database_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    database_recycle_seconds: int = Field(default=1800, ge=60, le=86400)
+
+
+class PerformanceWorkerSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    concurrency: int | None = Field(default=None, ge=1, le=4)
+    poll_interval_seconds: float = Field(default=1.0, ge=0.1, le=30)
+    lease_seconds: int = Field(default=120, ge=30, le=3600)
+    heartbeat_seconds: int = Field(default=30, ge=5, le=600)
+    shutdown_grace_seconds: int = Field(default=30, ge=1, le=300)
+
+
+class PerformanceGdalSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cache_mib: int | None = Field(default=None, ge=64, le=4096)
+    thread_cap: int | None = Field(default=None, ge=1, le=32)
+    dataset_pool_size: int | None = Field(default=None, ge=8, le=256)
+    formula_window_budget_mib: int | None = Field(default=None, ge=32, le=2048)
+    scratch_reserve_gib: int = Field(default=5, ge=1, le=1024)
+
+
+class PerformanceBrowserSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    vector_limit: int | None = Field(default=None, ge=100, le=5000)
+    bbox_debounce_ms: int | None = Field(default=None, ge=50, le=2000)
+    webgl_texture_cache: int | None = Field(default=None, ge=32, le=1024)
+    geotiff_cache_size: int | None = Field(default=None, ge=8, le=256)
+
+
+class PerformanceCacheSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    namespace: str = Field(default="womap:performance", min_length=1, max_length=64)
+    ttl_seconds: int = Field(default=120, ge=1, le=86400)
+    max_entry_kib: int = Field(default=256, ge=1, le=4096)
+    fail_open: bool = True
+
+
+class PerformanceGpuSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    backend: Literal["cpu", "auto", "cupy"] = "cpu"
+    device_index: int = Field(default=0, ge=0, le=15)
+    memory_fraction: float = Field(default=0.5, ge=0.1, le=0.9)
+    minimum_speedup: float = Field(default=1.5, ge=1.0, le=10.0)
+
+
+class ResolvedPerformanceSettings(BaseModel):
+    requested_profile: Literal["auto", "low", "balanced", "high"]
+    resolved_profile: Literal["low", "balanced", "high"]
+    resolution_reason: str
+    enforcement: Literal["diagnostic"] = "diagnostic"
+    api_worker_count: int
+    database_pool_size: int
+    database_max_overflow: int
+    worker_enabled: bool
+    worker_concurrency: int
+    gdal_cache_mib: int
+    gdal_threads: int
+    gdal_dataset_pool_size: int
+    formula_window_budget_mib: int
+    scratch_reserve_gib: int
+    browser_vector_limit: int
+    browser_bbox_debounce_ms: int
+    webgl_texture_cache: int
+    geotiff_cache_size: int
+    cache_enabled: bool
+    cache_ttl_seconds: int
+    cache_max_entry_kib: int
+    gpu_requested_backend: Literal["cpu", "auto", "cupy"]
+    gpu_memory_fraction: float
+    gpu_minimum_speedup: float
+
+
 class PerformanceSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    profile: Literal["auto", "low", "balanced", "high"] = "auto"
     max_features_per_request: int = 5000
     default_bbox_limit: int = 1000
     simplify_tolerance: float = 0.00001
     cache_ttl_seconds: int = 120
     large_layer_feature_threshold: int = 50000
     tile_feature_threshold: int = 10000
+    api: PerformanceApiSettings = Field(default_factory=PerformanceApiSettings)
+    worker: PerformanceWorkerSettings = Field(default_factory=PerformanceWorkerSettings)
+    gdal: PerformanceGdalSettings = Field(default_factory=PerformanceGdalSettings)
+    browser: PerformanceBrowserSettings = Field(default_factory=PerformanceBrowserSettings)
+    cache: PerformanceCacheSettings = Field(default_factory=PerformanceCacheSettings)
+    gpu: PerformanceGpuSettings = Field(default_factory=PerformanceGpuSettings)
 
     def clamp_feature_limit(self, requested_limit: int | None) -> int:
         if requested_limit is None:
             return self.default_bbox_limit
         return max(1, min(requested_limit, self.max_features_per_request))
+
+    def resolve(
+        self,
+        *,
+        logical_cpu_count: int | None,
+        total_memory_bytes: int | None,
+    ) -> ResolvedPerformanceSettings:
+        logical_cpus = max(1, logical_cpu_count or 1)
+        memory_gib = max(1.0, (total_memory_bytes or 0) / (1024**3))
+
+        resolved_profile: Literal["low", "balanced", "high"]
+        reason: str
+        if self.profile != "auto":
+            resolved_profile = self.profile
+            reason = "explicit_profile"
+        elif logical_cpus <= 4 or memory_gib < 8:
+            resolved_profile = "low"
+            reason = "auto_limited_resources"
+        elif logical_cpus >= 16 and memory_gib >= 32:
+            resolved_profile = "high"
+            reason = "auto_workstation_resources"
+        else:
+            resolved_profile = "balanced"
+            reason = "auto_balanced_resources"
+
+        presets = {
+            "low": {
+                "pool_size": 4,
+                "overflow": 1,
+                "gdal_threads": 1,
+                "gdal_cache": 128,
+                "dataset_pool": 32,
+                "formula_budget": 64,
+                "vector_limit": min(1000, self.default_bbox_limit),
+                "debounce": 260,
+                "texture_cache": 128,
+                "geotiff_cache": 32,
+            },
+            "balanced": {
+                "pool_size": 8,
+                "overflow": 2,
+                "gdal_threads": max(1, min(4, logical_cpus - 1)),
+                "gdal_cache": max(128, min(512, int(memory_gib * 16))),
+                "dataset_pool": 64,
+                "formula_budget": 128,
+                "vector_limit": min(2000, self.max_features_per_request),
+                "debounce": 180,
+                "texture_cache": 256,
+                "geotiff_cache": 48,
+            },
+            "high": {
+                "pool_size": 12,
+                "overflow": 4,
+                "gdal_threads": max(1, min(8, logical_cpus - 2)),
+                "gdal_cache": max(256, min(1024, int(memory_gib * 24))),
+                "dataset_pool": 128,
+                "formula_budget": 256,
+                "vector_limit": min(3000, self.max_features_per_request),
+                "debounce": 140,
+                "texture_cache": 384,
+                "geotiff_cache": 64,
+            },
+        }
+        preset = presets[resolved_profile]
+
+        return ResolvedPerformanceSettings(
+            requested_profile=self.profile,
+            resolved_profile=resolved_profile,
+            resolution_reason=reason,
+            api_worker_count=self.api.worker_count,
+            database_pool_size=self.api.database_pool_size or preset["pool_size"],
+            database_max_overflow=(
+                self.api.database_max_overflow
+                if self.api.database_max_overflow is not None
+                else preset["overflow"]
+            ),
+            worker_enabled=self.worker.enabled,
+            worker_concurrency=self.worker.concurrency or 1,
+            gdal_cache_mib=self.gdal.cache_mib or preset["gdal_cache"],
+            gdal_threads=self.gdal.thread_cap or preset["gdal_threads"],
+            gdal_dataset_pool_size=self.gdal.dataset_pool_size or preset["dataset_pool"],
+            formula_window_budget_mib=(
+                self.gdal.formula_window_budget_mib or preset["formula_budget"]
+            ),
+            scratch_reserve_gib=self.gdal.scratch_reserve_gib,
+            browser_vector_limit=self.browser.vector_limit or preset["vector_limit"],
+            browser_bbox_debounce_ms=self.browser.bbox_debounce_ms or preset["debounce"],
+            webgl_texture_cache=self.browser.webgl_texture_cache or preset["texture_cache"],
+            geotiff_cache_size=self.browser.geotiff_cache_size or preset["geotiff_cache"],
+            cache_enabled=self.cache.enabled,
+            cache_ttl_seconds=self.cache.ttl_seconds,
+            cache_max_entry_kib=self.cache.max_entry_kib,
+            gpu_requested_backend=self.gpu.backend,
+            gpu_memory_fraction=self.gpu.memory_fraction,
+            gpu_minimum_speedup=self.gpu.minimum_speedup,
+        )
 
 
 class Settings(BaseModel):
@@ -276,6 +471,7 @@ class Settings(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     server: ServerSettings = Field(default_factory=ServerSettings)
     frontend: FrontendSettings = Field(default_factory=FrontendSettings)
+    runtime: ApplicationRuntimeSettings = Field(default_factory=ApplicationRuntimeSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     test_database: TestDatabaseSettings = Field(default_factory=TestDatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

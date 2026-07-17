@@ -20,6 +20,11 @@ Object.defineProperty(window, 'getComputedStyle', {
   value: (element: Element) => originalGetComputedStyle(element),
 });
 
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+  writable: true,
+  value: () => null,
+});
+
 class ResizeObserverMock {
   observe() {}
   unobserve() {}

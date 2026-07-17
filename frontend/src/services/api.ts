@@ -20,6 +20,7 @@ import type {
   WorkspaceUpdate,
   WorkspaceWrite,
 } from '../types/workspaces';
+import type { CapabilityStatus, PerformanceCapabilitySummary } from '../types/performance';
 import type {
   AnalysisScope,
   AnalysisUnit,
@@ -218,6 +219,89 @@ export async function getHealth() {
   return response.json() as Promise<{
     status: string;
   }>;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function finiteNumber(value: unknown, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function nullableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function capabilityStatus(value: unknown): CapabilityStatus {
+  return ['available', 'unavailable', 'restricted', 'unknown'].includes(String(value))
+    ? (value as CapabilityStatus)
+    : 'unknown';
+}
+
+export function decodePerformanceCapabilities(value: unknown): PerformanceCapabilitySummary {
+  const root = recordValue(value);
+  const system = recordValue(root.system);
+  const cpu = recordValue(system.cpu);
+  const memory = recordValue(system.memory);
+  const runtime = recordValue(root.runtime);
+  const profile = recordValue(runtime.profile);
+  const software = recordValue(root.software);
+  const cupy = recordValue(software.cupy);
+  const queue = recordValue(root.queue);
+  const recommendations = Array.isArray(root.recommendations) ? root.recommendations : [];
+  const warning = recommendations
+    .map(recordValue)
+    .find((item) => item.severity === 'warning');
+  const gpus = Array.isArray(root.gpus) ? root.gpus.map(recordValue) : [];
+  const firstGpu = gpus[0];
+  const gpuName = typeof firstGpu?.name === 'string' ? firstGpu.name : null;
+  const resolvedProfile = ['low', 'balanced', 'high'].includes(String(profile.resolved_profile))
+    ? (profile.resolved_profile as 'low' | 'balanced' | 'high')
+    : 'low';
+  const requestedProfile = ['auto', 'low', 'balanced', 'high'].includes(
+    String(profile.requested_profile),
+  )
+    ? (profile.requested_profile as 'auto' | 'low' | 'balanced' | 'high')
+    : 'auto';
+
+  return {
+    profile: {
+      requested: requestedProfile,
+      resolved: resolvedProfile,
+      enforcement: 'diagnostic',
+      gdalThreads: finiteNumber(profile.gdal_threads, 1),
+      gdalCacheMiB: finiteNumber(profile.gdal_cache_mib, 128),
+    },
+    runtimeMode: runtime.mode === 'production' ? 'production' : 'development',
+    cpuLogicalCores: Math.max(1, finiteNumber(cpu.logical_cores, 1)),
+    totalMemoryBytes: nullableNumber(memory.total_bytes),
+    availableMemoryBytes: nullableNumber(memory.available_bytes),
+    gpu: {
+      count: gpus.length,
+      label: gpuName ?? (gpus.length > 0 ? `${gpus.length} 个 GPU` : '未检测到'),
+      cupyStatus: capabilityStatus(cupy.status),
+      executionEnabled: runtime.gpu_execution_enabled === true,
+      executionReason:
+        typeof runtime.gpu_execution_reason === 'string'
+          ? runtime.gpu_execution_reason
+          : 'unknown',
+    },
+    queue: {
+      status: capabilityStatus(queue.status),
+      queued: nullableNumber(queue.queued),
+      running: nullableNumber(queue.running),
+    },
+    warning: warning && typeof warning.action === 'string' ? warning.action : null,
+  };
+}
+
+export async function getPerformanceCapabilities(signal?: AbortSignal) {
+  const response = await apiFetch(`${apiBaseUrl}/api/v1/performance/capabilities`, { signal });
+  if (!response.ok) throw await apiError(response, '性能能力加载失败');
+  return decodePerformanceCapabilities(await response.json());
 }
 
 export async function getBasemaps() {

@@ -9,6 +9,7 @@ from app.features.jobs.router import router as jobs_router
 from app.features.imports.router import router as imports_router
 from app.features.layers.router import router as layers_router
 from app.features.map_features.router import router as map_features_router
+from app.features.performance.router import router as performance_router
 from app.features.projects.router import router as projects_router
 from app.features.rasters.router import router as rasters_router
 from app.features.settings.router import router as settings_router
@@ -27,6 +28,12 @@ api_router.include_router(jobs_router, prefix="/jobs", tags=["jobs"], dependenci
 api_router.include_router(imports_router, prefix="/imports", tags=["imports"], dependencies=protected)
 api_router.include_router(rasters_router, prefix="/rasters", tags=["rasters"], dependencies=protected)
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"], dependencies=protected)
+api_router.include_router(
+    performance_router,
+    prefix="/performance",
+    tags=["performance"],
+    dependencies=protected,
+)
 api_router.include_router(workspaces_router, prefix="/workspaces", tags=["workspaces"], dependencies=protected)
 api_router.include_router(
     spatial_analyses_router,

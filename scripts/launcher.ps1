@@ -666,6 +666,19 @@ function Invoke-Doctor {
     Write-Check "redis port" $redisStatus "localhost:6379"
     Write-Check "postgres port" $postgresStatus "localhost:5432"
 
+    if (Test-CommandExists "uv") {
+        $capabilitySummary = & uv run python -m app.features.performance.doctor 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host ""
+            foreach ($line in $capabilitySummary) {
+                Write-Host $line
+            }
+        }
+        else {
+            Write-Check "performance profile" "limited" "capability probe unavailable"
+        }
+    }
+
     if ($failed) {
         return 1
     }
