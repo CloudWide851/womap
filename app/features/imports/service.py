@@ -24,6 +24,7 @@ from app.features.settings.service import SettingsService
 from app.models.job import Job
 from app.shared.config import ROOT_DIR
 from app.shared.database import AsyncSessionLocal
+from app.shared.runtime_performance import resolve_runtime_performance
 
 
 class ImportService:
@@ -356,7 +357,7 @@ class ImportService:
             import_settings.raster_scratch_path,
             import_settings.raster_quota_gb,
         )
-        processor = RasterProcessor(storage)
+        processor = RasterProcessor(storage, resolve_runtime_performance())
         layer_id = staging_layers.get(dataset.id)
         layer = await self.repository.get_layer(int(layer_id)) if layer_id else None
         if layer is None:
@@ -407,7 +408,10 @@ class ImportService:
                     },
                 )
                 await asyncio.sleep(0.25)
-            asset_path, raster_metadata, bounds = await task
+            result = await task
+            asset_path, raster_metadata, bounds = result.path, result.metadata, result.bounds
+            detail.phase_timings_ms = result.phase_timings.public_summary()
+            detail.space_estimate_bytes = result.space_estimate.public_summary()
             detail.stage = "validating"
             await self.repository.finalize_raster_layer(
                 layer,

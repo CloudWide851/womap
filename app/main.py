@@ -9,8 +9,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.v1.router import api_router
+from app.shared.cache import close_performance_cache
 from app.shared.config import get_settings
-from app.shared.database import AsyncSessionLocal
+from app.shared.database import AsyncSessionLocal, engine
 from app.shared.frontend_runtime import register_frontend_runtime
 
 logger = logging.getLogger("womap.lifecycle")
@@ -28,7 +29,11 @@ def _security_headers(request_id: str) -> dict[str, str]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    yield
+    try:
+        yield
+    finally:
+        await close_performance_cache()
+        await engine.dispose()
 
 
 def create_app() -> FastAPI:

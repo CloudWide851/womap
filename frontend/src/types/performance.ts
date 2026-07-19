@@ -4,9 +4,27 @@ export interface PerformanceCapabilitySummary {
   profile: {
     requested: 'auto' | 'low' | 'balanced' | 'high';
     resolved: 'low' | 'balanced' | 'high';
-    enforcement: 'diagnostic';
+    enforcement: 'active';
     gdalThreads: number;
     gdalCacheMiB: number;
+    gdalDatasetPoolSize: number;
+    formulaWindowBudgetMiB: number;
+    scratchReserveGiB: number;
+    databasePoolSize: number;
+    databaseMaxOverflow: number;
+  };
+  browser: {
+    vectorLimit: number;
+    bboxDebounceMs: number;
+    webglTextureCache: number;
+    geotiffCacheSize: number;
+    incrementalSourceUpdates: boolean;
+    browseSimplifyMaxTolerance: number;
+  };
+  cache: {
+    enabled: boolean;
+    ttlSeconds: number;
+    maxEntryKiB: number;
   };
   runtimeMode: 'development' | 'production';
   cpuLogicalCores: number;

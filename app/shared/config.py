@@ -84,6 +84,8 @@ class DatabaseSettings(BaseModel):
     pool: DatabasePoolSettings = Field(default_factory=DatabasePoolSettings)
 
     def sqlalchemy_url(self) -> URL:
+        if self.driver.startswith("sqlite"):
+            return URL.create(drivername=self.driver, database=self.name)
         return URL.create(
             drivername=self.driver,
             username=self.username or None,
@@ -325,13 +327,20 @@ class PerformanceBrowserSettings(BaseModel):
     bbox_debounce_ms: int | None = Field(default=None, ge=50, le=2000)
     webgl_texture_cache: int | None = Field(default=None, ge=32, le=1024)
     geotiff_cache_size: int | None = Field(default=None, ge=8, le=256)
+    incremental_source_updates: bool = False
+    browse_simplify_max_tolerance: float = Field(default=5.0, ge=0, le=1000)
 
 
 class PerformanceCacheSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     enabled: bool = False
-    namespace: str = Field(default="womap:performance", min_length=1, max_length=64)
+    namespace: str = Field(
+        default="womap:performance",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9:_-]+$",
+    )
     ttl_seconds: int = Field(default=120, ge=1, le=86400)
     max_entry_kib: int = Field(default=256, ge=1, le=4096)
     fail_open: bool = True
@@ -350,7 +359,7 @@ class ResolvedPerformanceSettings(BaseModel):
     requested_profile: Literal["auto", "low", "balanced", "high"]
     resolved_profile: Literal["low", "balanced", "high"]
     resolution_reason: str
-    enforcement: Literal["diagnostic"] = "diagnostic"
+    enforcement: Literal["active"] = "active"
     api_worker_count: int
     database_pool_size: int
     database_max_overflow: int
@@ -365,6 +374,8 @@ class ResolvedPerformanceSettings(BaseModel):
     browser_bbox_debounce_ms: int
     webgl_texture_cache: int
     geotiff_cache_size: int
+    browser_incremental_source_updates: bool
+    browser_simplify_max_tolerance: float
     cache_enabled: bool
     cache_ttl_seconds: int
     cache_max_entry_kib: int
@@ -483,6 +494,8 @@ class PerformanceSettings(BaseModel):
             browser_bbox_debounce_ms=self.browser.bbox_debounce_ms or preset["debounce"],
             webgl_texture_cache=self.browser.webgl_texture_cache or preset["texture_cache"],
             geotiff_cache_size=self.browser.geotiff_cache_size or preset["geotiff_cache"],
+            browser_incremental_source_updates=self.browser.incremental_source_updates,
+            browser_simplify_max_tolerance=self.browser.browse_simplify_max_tolerance,
             cache_enabled=self.cache.enabled,
             cache_ttl_seconds=self.cache.ttl_seconds,
             cache_max_entry_kib=self.cache.max_entry_kib,

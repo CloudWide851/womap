@@ -38,7 +38,7 @@ async def _report(as_json: bool) -> int:
     )
     print(
         f"  GDAL threads/cache: {profile.gdal_threads} / {profile.gdal_cache_mib} MiB "
-        "(diagnostic budget)"
+        "(active enforced budget)"
     )
     return 0
 

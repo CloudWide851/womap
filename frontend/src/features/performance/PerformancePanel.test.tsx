@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getPerformanceCapabilities } from '../../services/api';
+import { usePerformanceStore } from '../../stores/usePerformanceStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { detectWebGLCapabilities } from './webgl';
 import { PerformancePanel } from './PerformancePanel';
@@ -16,14 +17,29 @@ vi.mock('./webgl', () => ({
 
 beforeEach(() => {
   useWorkspaceStore.getState().reset();
+  usePerformanceStore.getState().reset();
   vi.mocked(getPerformanceCapabilities).mockResolvedValue({
     profile: {
       requested: 'auto',
       resolved: 'balanced',
-      enforcement: 'diagnostic',
+      enforcement: 'active',
       gdalThreads: 4,
       gdalCacheMiB: 512,
+      gdalDatasetPoolSize: 64,
+      formulaWindowBudgetMiB: 128,
+      scratchReserveGiB: 5,
+      databasePoolSize: 8,
+      databaseMaxOverflow: 2,
     },
+    browser: {
+      vectorLimit: 2000,
+      bboxDebounceMs: 180,
+      webglTextureCache: 256,
+      geotiffCacheSize: 48,
+      incrementalSourceUpdates: false,
+      browseSimplifyMaxTolerance: 5,
+    },
+    cache: { enabled: false, ttlSeconds: 120, maxEntryKiB: 256 },
     runtimeMode: 'development',
     cpuLogicalCores: 12,
     totalMemoryBytes: 32 * 1024 ** 3,

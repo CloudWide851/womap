@@ -94,3 +94,46 @@ class PerformanceCapabilityResponse(BaseModel):
     runtime: RuntimeCapability
     queue: QueueCapability
     recommendations: list[PerformanceRecommendation] = Field(default_factory=list)
+
+
+class DatabasePoolMetric(BaseModel):
+    active: int = Field(ge=0)
+    peak: int = Field(ge=0)
+    checkouts: int = Field(ge=0)
+    timeouts: int = Field(ge=0)
+    samples: int = Field(ge=0)
+    wait_p50_ms: float = Field(ge=0)
+    wait_p95_ms: float = Field(ge=0)
+    wait_max_ms: float = Field(ge=0)
+
+
+class DatabaseConnectionBudget(BaseModel):
+    configured_connections: int = Field(ge=0)
+    server_max_connections: int | None = Field(default=None, ge=1)
+    reserved_connections: int | None = Field(default=None, ge=0)
+    within_budget: bool | None = None
+
+
+class CacheMetric(BaseModel):
+    hit: int = Field(ge=0)
+    miss: int = Field(ge=0)
+    write: int = Field(ge=0)
+    error: int = Field(ge=0)
+    corruption: int = Field(ge=0)
+    oversize: int = Field(ge=0)
+    hit_rate: float = Field(ge=0, le=1)
+
+
+class RangeMetric(BaseModel):
+    requests: int = Field(ge=0)
+    bytes: int = Field(ge=0)
+    statuses: dict[str, int] = Field(default_factory=dict)
+
+
+class PerformanceMetricsResponse(BaseModel):
+    schema_version: Literal["womap.performance-metrics/v1"] = "womap.performance-metrics/v1"
+    captured_at: datetime
+    database_pools: dict[str, DatabasePoolMetric] = Field(default_factory=dict)
+    connection_budget: DatabaseConnectionBudget
+    cache: CacheMetric
+    range: RangeMetric

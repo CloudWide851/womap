@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from scripts.perf.capture_postgis_plans import parse_bbox
+from scripts.perf.capture_postgis_plans import parse_bbox, require_report_path
+from scripts.perf.benchmark_gdal_matrix import PERF_ROOT as GDAL_PERF_ROOT
+from scripts.perf.benchmark_gdal_matrix import parse_values, require_perf_path
 from scripts.perf.compare_reports import compare_api_reports
 from scripts.perf.generate_ci_data import generate_ci_dataset
 from scripts.perf.generate_workstation_data import PERF_ROOT, require_managed_output
@@ -180,6 +182,15 @@ def test_postgis_bbox_and_workstation_output_guards(tmp_path: Path) -> None:
     assert require_managed_output(PERF_ROOT / "workstation-medium").name == "workstation-medium"
     with pytest.raises(ValueError):
         require_managed_output(tmp_path / "outside")
+    assert parse_values("1,2,4") == [1, 2, 4]
+    assert require_perf_path(GDAL_PERF_ROOT / "datasets" / "raster.tif").name == "raster.tif"
+    with pytest.raises(ValueError):
+        require_perf_path(tmp_path / "outside.tif")
+    assert require_report_path(
+        Path(".womap-data/perf/reports/test-postgis-plan.json")
+    ).name == "test-postgis-plan.json"
+    with pytest.raises(ValueError):
+        require_report_path(tmp_path / "postgis-plan.json")
 
 
 def test_redaction_keeps_non_sensitive_version_strings() -> None:

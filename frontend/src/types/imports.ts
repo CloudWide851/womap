@@ -150,6 +150,27 @@ export interface RasterJobProgressDetail {
   total_bytes: number;
   processed_blocks: number;
   total_blocks: number;
+  phase_timings_ms?: {
+    preflight: number;
+    read_warp: number | null;
+    compute: number | null;
+    write_compress: number | null;
+    overview: number | null;
+    validation: number;
+    combined_io: number | null;
+    total: number;
+    combined_phases: Array<'read_warp' | 'compute' | 'write_compress' | 'overview'>;
+  } | null;
+  space_estimate_bytes?: {
+    source: number;
+    candidate_asset: number;
+    formula_intermediate: number;
+    compression_overview: number;
+    final_asset: number;
+    scratch_required: number;
+    store_required: number;
+    reserve: number;
+  } | null;
   warnings: string[];
   error: string | null;
 }
@@ -258,6 +279,7 @@ export interface RasterHistogram {
   maximum: number | null;
   percentiles: Record<string, number | null>;
   sample_count: number;
+  cache_hit: boolean;
 }
 
 export interface RasterPixel {

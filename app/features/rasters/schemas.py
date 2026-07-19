@@ -61,6 +61,7 @@ class RasterHistogramResponse(BaseModel):
     maximum: float | None
     percentiles: dict[str, float | None]
     sample_count: int
+    cache_hit: bool = False
 
 
 class RasterPixelResponse(BaseModel):

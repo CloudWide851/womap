@@ -35,7 +35,7 @@ def test_performance_profile_resolution_is_conservative_and_capped() -> None:
     assert limited.gdal_threads == 1
     assert limited.gdal_cache_mib == 128
     assert limited.worker_concurrency == 1
-    assert limited.enforcement == "diagnostic"
+    assert limited.enforcement == "active"
 
     workstation = PerformanceSettings().resolve(
         logical_cpu_count=128,
@@ -221,7 +221,34 @@ def test_performance_capability_route_is_authenticated_and_redacted() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["schema_version"] == "womap.performance-capabilities/v1"
-    assert body["runtime"]["profile"]["enforcement"] == "diagnostic"
+    assert body["runtime"]["profile"]["enforcement"] == "active"
     assert body["runtime"]["gpu_execution_enabled"] is False
     assert "local_config_path" not in response.text
+    assert "password" not in response.text.casefold()
+
+
+def test_performance_metrics_route_is_authenticated_and_aggregate_only() -> None:
+    settings = Settings.model_validate({"redis": {"host": ""}})
+    service = PerformanceService(detector=FakeDetector(), settings=settings)
+
+    public_app = create_app()
+    assert TestClient(public_app).get("/api/v1/performance/metrics").status_code == 401
+
+    protected_app = allow_test_auth(create_app())
+    protected_app.dependency_overrides[get_performance_service] = lambda: service
+    response = TestClient(protected_app).get("/api/v1/performance/metrics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == "womap.performance-metrics/v1"
+    assert set(body) == {
+        "schema_version",
+        "captured_at",
+        "database_pools",
+        "connection_budget",
+        "cache",
+        "range",
+    }
+    assert "redis" not in response.text.casefold()
+    assert "sql" not in response.text.casefold()
     assert "password" not in response.text.casefold()

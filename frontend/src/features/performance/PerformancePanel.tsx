@@ -12,7 +12,7 @@ import {
 import { memo, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { getPerformanceCapabilities } from '../../services/api';
+import { usePerformanceStore } from '../../stores/usePerformanceStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import type { BrowserWebGLCapability, PerformanceCapabilitySummary } from '../../types/performance';
 import type { LayerPerformanceState } from '../../types/workspace';
@@ -70,8 +70,9 @@ export function PerformancePanel() {
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const layer = layers.find((item) => item.id === selectedLayerId);
-  const [capabilities, setCapabilities] = useState<PerformanceCapabilitySummary | null>(null);
-  const [capabilityError, setCapabilityError] = useState<string | null>(null);
+  const capabilities = usePerformanceStore((state) => state.capabilities);
+  const capabilityError = usePerformanceStore((state) => state.error);
+  const loadCapabilities = usePerformanceStore((state) => state.load);
   const [webgl, setWebgl] = useState<BrowserWebGLCapability>({
     status: 'checking',
     version: null,
@@ -82,18 +83,8 @@ export function PerformancePanel() {
 
   useEffect(() => {
     setWebgl(detectWebGLCapabilities());
-    const controller = new AbortController();
-    void getPerformanceCapabilities(controller.signal)
-      .then((response) => {
-        setCapabilities(response);
-        setCapabilityError(null);
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setCapabilityError(error instanceof Error ? error.message : '性能能力加载失败');
-      });
-    return () => controller.abort();
-  }, []);
+    void loadCapabilities();
+  }, [loadCapabilities]);
 
   const capabilityWarning =
     capabilityError ??
@@ -162,7 +153,7 @@ export function PerformancePanel() {
         </div>
         <div>
           <DatabaseZap size={14} aria-hidden="true" />
-          <span>GDAL 诊断预算</span>
+          <span>GDAL 生效预算</span>
           <strong>
             {capabilities
               ? `${capabilities.profile.gdalThreads} 线程 / ${capabilities.profile.gdalCacheMiB} MiB`

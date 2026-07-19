@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.performance.detectors import CapabilityDetector
 from app.features.performance.schemas import (
     GpuCapability,
+    DatabaseConnectionBudget,
     PerformanceCapabilityResponse,
+    PerformanceMetricsResponse,
     PerformanceRecommendation,
     QueueCapability,
     RuntimeCapability,
@@ -21,6 +24,8 @@ from app.features.performance.schemas import (
 )
 from app.models.job import Job
 from app.shared.config import ROOT_DIR, Settings, get_settings
+from app.shared.runtime_metrics import runtime_metrics
+from app.shared.runtime_performance import resolve_runtime_performance
 
 
 class PerformanceService:
@@ -83,6 +88,42 @@ class PerformanceService:
                 local_software["cupy"],
                 redis,
             ),
+        )
+
+    async def get_metrics(self) -> PerformanceMetricsResponse:
+        snapshot = runtime_metrics.snapshot()
+        profile = resolve_runtime_performance(self.settings)
+        configured_connections = (
+            profile.database_pool_size
+            + profile.database_max_overflow
+            + (self.settings.performance.worker.database_pool_size if profile.worker_enabled else 0)
+        )
+        server_max: int | None = None
+        if self.session is not None and self.settings.database.uses_postgis:
+            try:
+                async with asyncio.timeout(2.0):
+                    raw = await self.session.scalar(
+                        text("SELECT current_setting('max_connections')::integer")
+                    )
+                server_max = int(raw) if raw is not None else None
+            except Exception:
+                server_max = None
+        reserve = max(5, math.ceil(server_max * 0.10)) if server_max is not None else None
+        return PerformanceMetricsResponse(
+            captured_at=datetime.now(timezone.utc),
+            database_pools=snapshot["database_pools"],
+            connection_budget=DatabaseConnectionBudget(
+                configured_connections=configured_connections,
+                server_max_connections=server_max,
+                reserved_connections=reserve,
+                within_budget=(
+                    configured_connections <= server_max - reserve
+                    if server_max is not None and reserve is not None
+                    else None
+                ),
+            ),
+            cache=snapshot["cache"],
+            range=snapshot["range"],
         )
 
     def _managed_storage_path(self) -> Path:

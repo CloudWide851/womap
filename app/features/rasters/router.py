@@ -22,6 +22,7 @@ from app.features.rasters.schemas import (
 from app.features.rasters.service import RasterService
 from app.features.rasters.storage import RasterStorageError
 from app.shared.database import get_session
+from app.shared.runtime_metrics import runtime_metrics
 
 router = APIRouter()
 
@@ -85,15 +86,18 @@ async def raster_asset(
         "Cache-Control": "private, max-age=31536000, immutable",
     }
     if request.headers.get("if-none-match") == etag:
+        runtime_metrics.range_response(status.HTTP_304_NOT_MODIFIED, 0)
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     size = path.stat().st_size
     try:
         selected = _parse_range(range_header, size)
     except (TypeError, ValueError) as exc:
         headers["Content-Range"] = f"bytes */{size}"
+        runtime_metrics.range_response(status.HTTP_416_RANGE_NOT_SATISFIABLE, 0)
         raise HTTPException(status_code=416, detail=str(exc), headers=headers) from exc
     if selected is None:
         headers["Content-Length"] = str(size)
+        runtime_metrics.range_response(status.HTTP_200_OK, size)
         return StreamingResponse(
             _file_chunks(path, 0, size), media_type="image/tiff", headers=headers
         )
@@ -105,6 +109,7 @@ async def raster_asset(
             "Content-Length": str(length),
         }
     )
+    runtime_metrics.range_response(status.HTTP_206_PARTIAL_CONTENT, length)
     return StreamingResponse(
         _file_chunks(path, start_byte, length),
         status_code=status.HTTP_206_PARTIAL_CONTENT,

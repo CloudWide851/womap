@@ -123,7 +123,7 @@ maps:
       enabled: false
 
 performance:
-  # auto 会按逻辑 CPU 与可用内存选择保守档位；本阶段只生成诊断预算，不改变系统全局设置。
+  # auto 会按逻辑 CPU 与可用内存选择保守档位；预算直接约束 WOMAP 进程，不改变系统全局设置。
   profile: auto
   max_features_per_request: 5000
   default_bbox_limit: 1000
@@ -160,6 +160,10 @@ performance:
     bbox_debounce_ms: null
     webgl_texture_cache: null
     geotiff_cache_size: null
+    # 只有回放基准证明 source-update p95 至少改善 20% 后才开启。
+    incremental_source_updates: false
+    # 浏览模式按半像素简化，并受此 EPSG:3857 米值上限约束；编辑/分析始终禁用简化。
+    browse_simplify_max_tolerance: 5.0
   cache:
     enabled: false
     namespace: womap:performance

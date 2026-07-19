@@ -14,6 +14,7 @@ from app.features.map_features.schemas import (
     MapFeatureItem,
     MapFeatureSummary,
 )
+from app.features.map_features.queries import build_viewport_feature_statement
 from app.features.workspaces.schemas import WorkspaceSelectionFilter
 from app.models.layer import Layer
 from app.models.map_feature import MapFeature
@@ -42,26 +43,12 @@ class MapFeatureRepository:
             except ValueError as exc:
                 raise ValueError("cursor 必须是有效的要素 ID。") from exc
 
-        envelope = func.ST_MakeEnvelope(*bbox.as_tuple(), 3857)
-        geometry_expression = MapFeature.geom
-        if simplify and simplify > 0:
-            geometry_expression = func.ST_SimplifyPreserveTopology(MapFeature.geom, simplify)
-        statement = (
-            select(
-                MapFeature.id,
-                MapFeature.layer_id,
-                MapFeature.source_feature_id,
-                MapFeature.properties,
-                MapFeature.revision,
-                func.ST_AsGeoJSON(geometry_expression).label("geometry_json"),
-            )
-            .where(
-                MapFeature.layer_id == layer_id,
-                MapFeature.id > cursor_id,
-                func.ST_Intersects(MapFeature.geom, envelope),
-            )
-            .order_by(MapFeature.id)
-            .limit(limit + 1)
+        statement = build_viewport_feature_statement(
+            layer_id=layer_id,
+            bbox=bbox,
+            cursor_id=cursor_id,
+            simplify=simplify,
+            row_limit=limit + 1,
         )
         statement = self._apply_workspace_filter(statement, workspace_filter)
         rows = (await self.session.execute(statement)).mappings().all()

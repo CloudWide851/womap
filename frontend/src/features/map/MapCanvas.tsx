@@ -46,6 +46,7 @@ import {
   type MapFeatureMutationResponse,
 } from '../../services/api';
 import { useMapStore } from '../../stores/useMapStore';
+import { usePerformanceStore } from '../../stores/usePerformanceStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
 import { useWorkspaceContextStore } from '../../stores/useWorkspaceContextStore';
@@ -61,11 +62,19 @@ import {
 import { MapToolbox } from './MapToolbox';
 import { MapSwipeDivider } from './MapSwipeDivider';
 import {
+  observeRasterResources,
+  recordClientMetric,
+} from '../performance/clientMetrics';
+import {
   createFirstVertexInteraction,
   resolveDrawingTarget,
   SNAP_PIXEL_TOLERANCE,
   snapEligibleLayers,
 } from './polygonEditing';
+import {
+  resolveBrowseSimplifyTolerance,
+  updateVectorSourceIncrementally,
+} from './viewportSource';
 
 type BasemapSource = OSM | XYZ;
 type MapFeatureGeometry = Point | Polygon;
@@ -165,7 +174,7 @@ function rasterWebGLStyle(style: RasterStyle): WebGLTileStyle {
   return webglStyle;
 }
 
-function createRasterSource(layer: WorkspaceLayer) {
+function createRasterSource(layer: WorkspaceLayer, cacheSize: number) {
   const style = layer.rasterStyle;
   if (!layer.raster || !style) return null;
   return new GeoTIFFSource({
@@ -178,7 +187,7 @@ function createRasterSource(layer: WorkspaceLayer) {
       allowFullFile: false,
       maxRanges: 1,
       blockSize: 64 * 1024,
-      cacheSize: 48,
+      cacheSize,
     },
   });
 }
@@ -391,6 +400,8 @@ export function MapCanvas() {
   const imagerySwipe = useMapStore((state) => state.imagerySwipe);
   const setViewState = useMapStore((state) => state.setViewState);
   const setSwipePosition = useMapStore((state) => state.setSwipePosition);
+  const performanceCapabilities = usePerformanceStore((state) => state.capabilities);
+  const loadPerformanceCapabilities = usePerformanceStore((state) => state.load);
   const basemaps = useSettingsStore((state) => state.basemaps);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
   const activeTool = useWorkspaceStore((state) => state.activeTool);
@@ -414,6 +425,14 @@ export function MapCanvas() {
   const upsertBackendLayer = useWorkspaceStore((state) => state.upsertBackendLayer);
   const selectBackendFeature = useWorkspaceStore((state) => state.selectBackendFeature);
   const recordEdit = useWorkspaceStore((state) => state.recordEdit);
+  const vectorLimit = performanceCapabilities?.browser.vectorLimit ?? 2000;
+  const bboxDebounceMs = performanceCapabilities?.browser.bboxDebounceMs ?? 180;
+  const webglTextureCache = performanceCapabilities?.browser.webglTextureCache ?? 256;
+  const geotiffCacheSize = performanceCapabilities?.browser.geotiffCacheSize ?? 48;
+  const incrementalSourceUpdates =
+    performanceCapabilities?.browser.incrementalSourceUpdates ?? false;
+  const browseSimplifyMaxTolerance =
+    performanceCapabilities?.browser.browseSimplifyMaxTolerance ?? 5;
   const selectedBasemap = useMemo(
     () => basemaps.find((provider) => provider.id === selectedBasemapId),
     [basemaps, selectedBasemapId],
@@ -428,6 +447,11 @@ export function MapCanvas() {
   );
   selectedBasemapRef.current = selectedBasemap;
   basemapsRef.current = basemaps;
+
+  useEffect(() => {
+    void loadPerformanceCapabilities();
+    return observeRasterResources();
+  }, [loadPerformanceCapabilities]);
   layersRef.current = layers;
   selectedFeatureIdRef.current = selectedFeatureId;
   imagerySwipeRef.current = imagerySwipe;
@@ -739,24 +763,24 @@ export function MapCanvas() {
       }
       const sourceKey = `${workspaceLayer.raster?.fingerprint ?? ''}:${JSON.stringify(
         rasterSourceBands(workspaceLayer.rasterStyle!),
-      )}:${workspaceLayer.rasterStyle?.stretch}`;
+      )}:${workspaceLayer.rasterStyle?.stretch}:${geotiffCacheSize}:${webglTextureCache}`;
       let runtime = rasterLayersRef.current.get(workspaceLayer.id);
       if (!runtime) {
-        const source = createRasterSource(workspaceLayer);
+        const source = createRasterSource(workspaceLayer, geotiffCacheSize);
         if (!source) continue;
         const webglLayer = new WebGLTileLayer({
           source,
           style: rasterWebGLStyle(workspaceLayer.rasterStyle!),
           visible: workspaceLayer.visible,
           opacity: workspaceLayer.opacity,
-          cacheSize: 256,
+          cacheSize: webglTextureCache,
         });
         webglLayer.setZIndex(20);
         runtime = { layer: webglLayer, sourceKey };
         rasterLayersRef.current.set(workspaceLayer.id, runtime);
         map.getLayers().insertAt(Math.min(2, map.getLayers().getLength()), webglLayer);
       } else if (runtime.sourceKey !== sourceKey) {
-        const source = createRasterSource(workspaceLayer);
+        const source = createRasterSource(workspaceLayer, geotiffCacheSize);
         if (source) {
           runtime.layer.setSource(source);
           runtime.sourceKey = sourceKey;
@@ -767,7 +791,7 @@ export function MapCanvas() {
       runtime.layer.setOpacity(workspaceLayer.opacity);
     }
     map.render();
-  }, [layers, mapReady, showNotice]);
+  }, [geotiffCacheSize, layers, mapReady, showNotice, webglTextureCache]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1284,6 +1308,12 @@ export function MapCanvas() {
         if (!size || disposed) return;
         const extent = map.getView().calculateExtent(size);
         const bbox = extent.map((value) => Number(value.toFixed(3))).join(',');
+        const resolution = map.getView().getResolution() ?? 0;
+        const simplify = resolveBrowseSimplifyTolerance(
+          workspaceMode,
+          resolution,
+          browseSimplifyMaxTolerance,
+        );
         backendAbortRef.current?.abort();
         const controller = new AbortController();
         backendAbortRef.current = controller;
@@ -1295,9 +1325,10 @@ export function MapCanvas() {
             const response = await getLayerFeatures(
               workspaceLayer.id,
               bbox,
-              2000,
+              vectorLimit,
               controller.signal,
               useWorkspaceContextStore.getState().current?.id,
+              simplify,
             );
             if (controller.signal.aborted || disposed) return;
             if (response.meta.truncated && !truncatedLayerIdsRef.current.has(workspaceLayer.id)) {
@@ -1313,6 +1344,7 @@ export function MapCanvas() {
             const vectorLayer = backendLayersRef.current.get(workspaceLayer.id);
             const source = vectorLayer?.getSource();
             if (!source) return;
+            const readStarted = globalThis.performance?.now() ?? Date.now();
             const features = new GeoJSON().readFeatures(
               {
                 type: 'FeatureCollection',
@@ -1336,19 +1368,32 @@ export function MapCanvas() {
               },
               { dataProjection: 'EPSG:3857', featureProjection: 'EPSG:3857' },
             ) as BackendFeature[];
+            recordClientMetric(
+              'geojson_read_features',
+              (globalThis.performance?.now() ?? Date.now()) - readStarted,
+            );
             for (const feature of features) {
               feature.set('layerId', workspaceLayer.id);
               feature.set('geometryType', workspaceLayer.geometryType);
               feature.setId(`backend:${workspaceLayer.id}:${feature.getId()}`);
             }
-            source.clear(true);
-            source.addFeatures(features);
+            const updateStarted = globalThis.performance?.now() ?? Date.now();
+            if (incrementalSourceUpdates) {
+              updateVectorSourceIncrementally(source, features);
+            } else {
+              source.clear(true);
+              source.addFeatures(features);
+            }
+            recordClientMetric(
+              'geojson_source_update',
+              (globalThis.performance?.now() ?? Date.now()) - updateStarted,
+            );
             vectorLayer?.changed();
           }),
         ).catch((error) => {
           if (error instanceof DOMException && error.name === 'AbortError') return;
         });
-      }, 180);
+      }, bboxDebounceMs);
     };
     map.on('moveend', loadViewport);
     loadViewport();
@@ -1358,7 +1403,16 @@ export function MapCanvas() {
       if (timer !== null) window.clearTimeout(timer);
       backendAbortRef.current?.abort();
     };
-  }, [layers, mapReady, showNotice]);
+  }, [
+    bboxDebounceMs,
+    browseSimplifyMaxTolerance,
+    incrementalSourceUpdates,
+    layers,
+    mapReady,
+    showNotice,
+    vectorLimit,
+    workspaceMode,
+  ]);
 
   useEffect(() => {
     const handleFocusLayer = (event: Event) => {

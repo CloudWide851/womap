@@ -28,6 +28,7 @@ import type {
   SpatialAnalysisHitPage,
   SpatialAnalysisResult,
 } from '../types/spatialAnalysis';
+import { recordClientMetric } from '../features/performance/clientMetrics';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 type ExportFormat = 'shp' | 'gdb';
@@ -271,9 +272,27 @@ export function decodePerformanceCapabilities(value: unknown): PerformanceCapabi
     profile: {
       requested: requestedProfile,
       resolved: resolvedProfile,
-      enforcement: 'diagnostic',
+      enforcement: 'active',
       gdalThreads: finiteNumber(profile.gdal_threads, 1),
       gdalCacheMiB: finiteNumber(profile.gdal_cache_mib, 128),
+      gdalDatasetPoolSize: finiteNumber(profile.gdal_dataset_pool_size, 32),
+      formulaWindowBudgetMiB: finiteNumber(profile.formula_window_budget_mib, 64),
+      scratchReserveGiB: finiteNumber(profile.scratch_reserve_gib, 5),
+      databasePoolSize: finiteNumber(profile.database_pool_size, 4),
+      databaseMaxOverflow: finiteNumber(profile.database_max_overflow, 1),
+    },
+    browser: {
+      vectorLimit: finiteNumber(profile.browser_vector_limit, 1000),
+      bboxDebounceMs: finiteNumber(profile.browser_bbox_debounce_ms, 260),
+      webglTextureCache: finiteNumber(profile.webgl_texture_cache, 128),
+      geotiffCacheSize: finiteNumber(profile.geotiff_cache_size, 32),
+      incrementalSourceUpdates: profile.browser_incremental_source_updates === true,
+      browseSimplifyMaxTolerance: finiteNumber(profile.browser_simplify_max_tolerance, 5),
+    },
+    cache: {
+      enabled: profile.cache_enabled === true,
+      ttlSeconds: finiteNumber(profile.cache_ttl_seconds, 120),
+      maxEntryKiB: finiteNumber(profile.cache_max_entry_kib, 256),
     },
     runtimeMode: runtime.mode === 'production' ? 'production' : 'development',
     cpuLogicalCores: Math.max(1, finiteNumber(cpu.logical_cores, 1)),
@@ -318,20 +337,33 @@ export async function getLayerFeatures(
   limit = 1000,
   signal?: AbortSignal,
   workspaceId?: number | null,
+  simplify?: number,
 ) {
   const params = new URLSearchParams({ bbox, limit: String(limit) });
   if (workspaceId) params.set('workspace_id', String(workspaceId));
+  if (simplify !== undefined) params.set('simplify', String(Math.max(0, simplify)));
+  const requestStarted = globalThis.performance?.now() ?? Date.now();
   const response = await apiFetch(`${apiBaseUrl}/api/v1/layers/${layerId}/features?${params}`, {
     signal,
   });
+  recordClientMetric(
+    'geojson_request',
+    (globalThis.performance?.now() ?? Date.now()) - requestStarted,
+  );
   if (!response.ok) {
     throw new Error('视口图斑加载失败');
   }
-  return response.json() as Promise<{
+  const parseStarted = globalThis.performance?.now() ?? Date.now();
+  const body = JSON.parse(await response.text()) as {
     type: 'FeatureCollection';
     features: unknown[];
     meta: FeatureQueryMeta;
-  }>;
+  };
+  recordClientMetric(
+    'geojson_body_parse',
+    (globalThis.performance?.now() ?? Date.now()) - parseStarted,
+  );
+  return body;
 }
 
 export async function getLayerFeatureSummaries(

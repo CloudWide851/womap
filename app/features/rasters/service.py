@@ -31,8 +31,10 @@ from app.features.rasters.schemas import (
 from app.features.rasters.storage import RasterStorage
 from app.features.settings.service import SettingsService
 from app.shared.config import ROOT_DIR
+from app.shared.cache import JsonCache, get_performance_cache
 from app.shared.database import AsyncSessionLocal
 from app.shared.gdal import configure_bundled_gdal
+from app.shared.runtime_performance import resolve_runtime_performance
 
 
 configure_bundled_gdal()
@@ -43,9 +45,11 @@ class RasterService:
         self,
         repository: RasterRepository,
         settings_service: SettingsService | None = None,
+        cache: JsonCache | None = None,
     ) -> None:
         self.repository = repository
         self.settings_service = settings_service or SettingsService()
+        self.cache = cache or get_performance_cache()
 
     async def storage(self) -> RasterStorage:
         settings = await self.settings_service.get_import_settings()
@@ -76,8 +80,15 @@ class RasterService:
         return path, etag, last_modified
 
     async def histogram(self, layer_id: int, band: int, bins: int) -> RasterHistogramResponse:
-        path, _, _ = await self.asset(layer_id, visible=False)
-        return await asyncio.to_thread(self._histogram, path, layer_id, band, bins)
+        path, etag, _ = await self.asset(layer_id, visible=False)
+        asset_fingerprint = etag.strip('"')
+        cache_key = f"raster-histogram/v1:{asset_fingerprint}:{band}:{bins}"
+        cached = await self.cache.get(cache_key, RasterHistogramResponse)
+        if cached.value is not None:
+            return cached.value.model_copy(update={"cache_hit": True})
+        response = await asyncio.to_thread(self._histogram, path, layer_id, band, bins)
+        await self.cache.set(cache_key, response.model_copy(update={"cache_hit": False}))
+        return response
 
     @staticmethod
     def _histogram(path: Path, layer_id: int, band: int, bins: int) -> RasterHistogramResponse:
@@ -211,7 +222,7 @@ class RasterService:
         if not layer.data_path:
             raise ValueError("源栅格资产不存在。")
         storage = await self.storage()
-        processor = RasterProcessor(storage)
+        processor = RasterProcessor(storage, resolve_runtime_performance())
         request = RasterDeriveRequest.model_validate(payload)
         fingerprint = hashlib.sha256(
             f"{(layer.performance or {}).get('fingerprint')}:{request.formula.model_dump_json()}".encode()
@@ -231,7 +242,7 @@ class RasterService:
             detail.processed_blocks = current
             detail.total_blocks = total
 
-        asset_path, metadata, bounds = await asyncio.to_thread(
+        result = await asyncio.to_thread(
             processor.materialize_formula,
             Path(layer.data_path),
             f"derived-{uuid4().hex[:16]}",
@@ -239,6 +250,7 @@ class RasterService:
             request.formula,
             progress,
         )
+        asset_path, metadata, bounds = result.path, result.metadata, result.bounds
         summary = await self.repository.create_derived_layer(
             name=request.name,
             asset_path=str(asset_path),
@@ -250,6 +262,8 @@ class RasterService:
         )
         detail.stage = "completed"
         detail.layer_id = summary.id
+        detail.phase_timings_ms = result.phase_timings.public_summary()
+        detail.space_estimate_bytes = result.space_estimate.public_summary()
         await self.repository.update_job(
             job,
             status="done",

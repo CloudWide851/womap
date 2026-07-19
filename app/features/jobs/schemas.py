@@ -49,6 +49,31 @@ class SpatialAnalysisJobProgressDetail(BaseModel):
     error: str | None = None
 
 
+class RasterPhaseTimingsDetail(BaseModel):
+    preflight: int = Field(default=0, ge=0)
+    read_warp: int | None = Field(default=None, ge=0)
+    compute: int | None = Field(default=None, ge=0)
+    write_compress: int | None = Field(default=None, ge=0)
+    overview: int | None = Field(default=None, ge=0)
+    validation: int = Field(default=0, ge=0)
+    combined_io: int | None = Field(default=None, ge=0)
+    total: int = Field(default=0, ge=0)
+    combined_phases: list[
+        Literal["read_warp", "compute", "write_compress", "overview"]
+    ] = Field(default_factory=list, max_length=4)
+
+
+class RasterSpaceEstimateDetail(BaseModel):
+    source: int = Field(default=0, ge=0)
+    candidate_asset: int = Field(default=0, ge=0)
+    formula_intermediate: int = Field(default=0, ge=0)
+    compression_overview: int = Field(default=0, ge=0)
+    final_asset: int = Field(default=0, ge=0)
+    scratch_required: int = Field(default=0, ge=0)
+    store_required: int = Field(default=0, ge=0)
+    reserve: int = Field(default=0, ge=0)
+
+
 class RasterJobProgressDetail(BaseModel):
     kind: Literal["raster-process"] = "raster-process"
     stage: str = "queued"
@@ -61,6 +86,8 @@ class RasterJobProgressDetail(BaseModel):
     total_bytes: int = 0
     processed_blocks: int = 0
     total_blocks: int = 0
+    phase_timings_ms: RasterPhaseTimingsDetail | None = None
+    space_estimate_bytes: RasterSpaceEstimateDetail | None = None
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 

@@ -101,19 +101,26 @@ def test_processor_creates_managed_epsg3857_cog(tmp_path: Path) -> None:
     source = _write_tiff(tmp_path / "source.tiff")
     storage = RasterStorage(str(tmp_path / "store"), str(tmp_path / "scratch"), 1)
 
-    path, metadata, bounds = RasterProcessor(storage).to_cog(
+    result = RasterProcessor(storage).to_cog(
         str(source),
         dataset_id="dataset123",
         fingerprint="a" * 64,
         source_crs="EPSG:4326",
     )
 
-    assert path.is_file()
-    assert storage.root in path.parents
-    assert metadata["band_count"] == 3
-    assert metadata["block_shapes"][0] == [512, 512]
-    assert bounds["max_x"] > bounds["min_x"]
-    with rasterio.open(path) as dataset:
+    assert result.path.is_file()
+    assert storage.root in result.path.parents
+    assert result.metadata["band_count"] == 3
+    assert result.metadata["block_shapes"][0] == [512, 512]
+    assert result.bounds["max_x"] > result.bounds["min_x"]
+    assert result.phase_timings.total_ms >= result.phase_timings.preflight_ms
+    assert result.phase_timings.combined_phases == (
+        "read_warp",
+        "write_compress",
+        "overview",
+    )
+    assert result.space_estimate.scratch_required_bytes > result.space_estimate.source_bytes
+    with rasterio.open(result.path) as dataset:
         assert dataset.crs.to_epsg() == 3857
         assert dataset.tags(ns="IMAGE_STRUCTURE").get("LAYOUT") == "COG"
 
