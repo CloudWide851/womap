@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.performance.detectors import CapabilityDetector
 from app.features.performance.schemas import (
-    GpuCapability,
     DatabaseConnectionBudget,
     PerformanceCapabilityResponse,
     PerformanceMetricsResponse,
@@ -22,8 +22,9 @@ from app.features.performance.schemas import (
     SoftwareCapabilities,
     SoftwareCapability,
 )
+from app.features.rasters.gpu_gate import GpuExecutionDecision, resolve_gpu_execution
 from app.models.job import Job
-from app.shared.config import ROOT_DIR, Settings, get_settings
+from app.shared.config import ROOT_DIR, ResolvedPerformanceSettings, Settings, get_settings
 from app.shared.runtime_metrics import runtime_metrics
 from app.shared.runtime_performance import resolve_runtime_performance
 
@@ -35,10 +36,13 @@ class PerformanceService:
         *,
         detector: CapabilityDetector | None = None,
         settings: Settings | None = None,
+        gpu_resolver: Callable[[ResolvedPerformanceSettings], GpuExecutionDecision]
+        | None = None,
     ) -> None:
         self.session = session
         self.detector = detector or CapabilityDetector()
         self.settings = settings or get_settings()
+        self.gpu_resolver = gpu_resolver or resolve_gpu_execution
 
     async def get_capabilities(self) -> PerformanceCapabilityResponse:
         storage_path = self._managed_storage_path()
@@ -60,7 +64,7 @@ class PerformanceService:
             logical_cpu_count=system.cpu.logical_cores,
             total_memory_bytes=system.memory.total_bytes,
         )
-        gpu_reason = self._gpu_execution_reason(gpus, local_software["cupy"])
+        gpu_decision = await asyncio.to_thread(self.gpu_resolver, resolved)
 
         return PerformanceCapabilityResponse(
             captured_at=datetime.now(timezone.utc),
@@ -78,8 +82,11 @@ class PerformanceService:
             runtime=RuntimeCapability(
                 mode=self.settings.runtime.mode,
                 profile=resolved,
-                gpu_execution_enabled=False,
-                gpu_execution_reason=gpu_reason,
+                gpu_execution_enabled=gpu_decision.execution_enabled,
+                gpu_execution_reason=gpu_decision.reason,
+                gpu_effective_backend=gpu_decision.effective_backend,
+                gpu_gate_status=gpu_decision.gate_status,
+                gpu_benchmark_speedup=gpu_decision.benchmark_speedup,
             ),
             queue=queue,
             recommendations=self._recommendations(
@@ -203,20 +210,6 @@ class PerformanceService:
                 except Exception:
                     # Probe cleanup must not turn an unavailable Redis into a failed API response.
                     pass
-
-    def _gpu_execution_reason(
-        self,
-        gpus: list[GpuCapability],
-        cupy: SoftwareCapability,
-    ) -> str:
-        requested = self.settings.performance.gpu.backend
-        if not gpus:
-            return "no_gpu_detected"
-        if requested == "cpu":
-            return "cpu_backend_is_default"
-        if cupy.status != "available":
-            return "cupy_runtime_unavailable"
-        return "local_correctness_and_speedup_gate_pending"
 
     @staticmethod
     def _recommendations(

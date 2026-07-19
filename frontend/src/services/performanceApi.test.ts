@@ -18,6 +18,9 @@ const rawCapability = {
     mode: 'development',
     gpu_execution_enabled: false,
     gpu_execution_reason: 'cpu_backend_is_default',
+    gpu_effective_backend: 'cpu',
+    gpu_gate_status: 'disabled',
+    gpu_benchmark_speedup: null,
     profile: {
       requested_profile: 'auto',
       resolved_profile: 'high',
@@ -50,8 +53,28 @@ describe('performance capability API boundary', () => {
       profile: { requested: 'auto', resolved: 'high', gdalThreads: 8, gdalCacheMiB: 1024 },
       browser: { vectorLimit: 3000, bboxDebounceMs: 140, geotiffCacheSize: 64 },
       cpuLogicalCores: 16,
-      gpu: { count: 1, label: 'Example GPU', executionEnabled: false },
+      gpu: {
+        count: 1,
+        label: 'Example GPU',
+        executionEnabled: false,
+        effectiveBackend: 'cpu',
+        gateStatus: 'disabled',
+        benchmarkSpeedup: null,
+      },
       queue: { status: 'available', queued: 1, running: 0 },
+    });
+  });
+
+  it('fails closed when an older response omits the incremental GPU gate fields', () => {
+    const legacy = structuredClone(rawCapability);
+    delete (legacy.runtime as Record<string, unknown>).gpu_effective_backend;
+    delete (legacy.runtime as Record<string, unknown>).gpu_gate_status;
+    delete (legacy.runtime as Record<string, unknown>).gpu_benchmark_speedup;
+
+    expect(decodePerformanceCapabilities(legacy).gpu).toMatchObject({
+      effectiveBackend: 'cpu',
+      gateStatus: 'disabled',
+      benchmarkSpeedup: null,
     });
   });
 

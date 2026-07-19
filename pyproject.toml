@@ -25,6 +25,9 @@ dependencies = [
     "python-multipart>=0.0.32",
 ]
 
+[project.optional-dependencies]
+gpu = ["cupy-cuda12x>=14.1,<15"]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.0",

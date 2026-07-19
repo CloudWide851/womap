@@ -121,6 +121,62 @@ frontend:
 
 进入“图斑编辑”后，点击“绘制图斑”始终保持绘制态；重复点击会取消当前草图并等待新的首次双击。建层失败或目标图层受限时可在修正条件后再次点击重试，绘制态地图使用带 `crosshair` 回退的画笔光标。
 
+## 可选 CuPy 栅格公式加速
+
+栅格公式始终以 NumPy CPU 结果为权威实现。CuPy 不属于基础依赖，生产默认保持 `performance.gpu.backend: cpu`；即使配置为 `auto` 或 `cupy`，本机端到端门槛缺失、损坏、指纹变化、正确性失败或速度低于 1.5 倍时也会自动保持 CPU。
+
+Windows 安装可选 CUDA 12.x 运行时并执行设备 smoke：
+
+```powershell
+uv sync --extra gpu
+uv run python -c "import cupy as cp; print(cp.cuda.runtime.getDeviceCount()); print(cp.cuda.runtime.runtimeGetVersion())"
+```
+
+项目路径包含非 ASCII 字符时，WOMAP 会把 CuPy 自带头文件按版本复制到 `%LOCALAPPDATA%\WOMAP\cupy-include`，并仅在当前进程内替换 NVRTC include 路径；内核缓存写入 `%LOCALAPPDATA%\WOMAP\cupy-cache`。这些目录不含业务数据或凭据，升级 CuPy 后会使用新的版本目录。
+
+先运行不会激活生产 GPU 的 CI-small 正确性与链路基准；若数据尚未生成，先执行生成命令：
+
+```powershell
+uv run python scripts/perf/generate_ci_data.py
+uv run python scripts/perf/benchmark_gpu_formula.py --profile ci-small
+```
+
+工作站门槛会对 `.womap-data/perf/datasets/workstation-medium/raster-source.tif` 执行一轮冷启动和三轮交替热样本，包含 GDAL 读取、主机/设备传输、公式计算、写出和 COG 转换。它耗时较长且需要严格的 scratch/store 空间预检，必须显式确认：
+
+```powershell
+uv run python scripts/perf/benchmark_gpu_formula.py --profile workstation-medium --confirm-large
+```
+
+只有报告显示 `passed` 且总速度达到配置门槛后，才在忽略提交的 `config/settings.local.yaml` 中启用并重启 Worker：
+
+```yaml
+performance:
+  gpu:
+    backend: auto
+    device_index: 0
+    memory_fraction: 0.5
+    minimum_speedup: 1.5
+```
+
+```powershell
+.\start-womap.bat stop
+.\start-womap.bat run
+.\start-womap.bat doctor
+```
+
+性能面板会分别显示“地图 GPU（WebGL）”和“原生计算（CPU/CuPy）”。GPU OOM、设备丢失或 CuPy runtime 错误会丢弃本次候选并从头用 CPU 重算，同时在当前 Worker 进程内熔断后续 GPU 尝试；普通 GDAL、磁盘或路径错误不会被伪装成 GPU 回退。
+
+回滚只需恢复 CPU 并移除可选 extra；不会修改电源计划、注册表、Defender 或 NVIDIA 全局设置：
+
+```powershell
+# config/settings.local.yaml: performance.gpu.backend: cpu
+uv sync --frozen
+.\start-womap.bat stop
+.\start-womap.bat run
+```
+
+Linux 使用相同的 `uv sync --extra gpu` 与基准命令，并通过阶段 2 的 API/Worker systemd 单元重启；Linux 实机总验收属于阶段 5。
+
 ## 空间分析
 
 从地图右上角“工具 → 空间分析”进入分析模式。进入时会退出编辑、取消草图并关闭两期卷帘；地图右上角的“退出空间分析”按钮或 Escape 可回到浏览模式。点击当前工作空间中可见的真实图斑后，右侧详情可打开分析表单。

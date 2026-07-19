@@ -171,7 +171,8 @@ performance:
     max_entry_kib: 256
     fail_open: true
   gpu:
-    # CPU 是权威路径；auto/cupy 只有在后续本机正确性与 >=1.5x 端到端门槛通过后才会执行。
+    # CPU 是权威路径；auto/cupy 仅在 `uv sync --extra gpu` 且本机正确性与 >=1.5x 端到端门槛通过后执行。
+    # 门槛缺失、损坏、硬件/运行时指纹变化或 Worker 内 GPU 失败都会 fail-closed 到 CPU。
     backend: cpu
     device_index: 0
     memory_fraction: 0.5

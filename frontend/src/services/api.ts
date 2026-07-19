@@ -20,7 +20,11 @@ import type {
   WorkspaceUpdate,
   WorkspaceWrite,
 } from '../types/workspaces';
-import type { CapabilityStatus, PerformanceCapabilitySummary } from '../types/performance';
+import type {
+  CapabilityStatus,
+  GpuGateStatus,
+  PerformanceCapabilitySummary,
+} from '../types/performance';
 import type {
   AnalysisScope,
   AnalysisUnit,
@@ -242,6 +246,16 @@ function capabilityStatus(value: unknown): CapabilityStatus {
     : 'unknown';
 }
 
+function gpuGateStatus(value: unknown, executionEnabled: boolean): GpuGateStatus {
+  return ['disabled', 'unavailable', 'missing', 'rejected', 'passed', 'fallback'].includes(
+    String(value),
+  )
+    ? (value as GpuGateStatus)
+    : executionEnabled
+      ? 'passed'
+      : 'disabled';
+}
+
 export function decodePerformanceCapabilities(value: unknown): PerformanceCapabilitySummary {
   const root = recordValue(value);
   const system = recordValue(root.system);
@@ -267,6 +281,7 @@ export function decodePerformanceCapabilities(value: unknown): PerformanceCapabi
   )
     ? (profile.requested_profile as 'auto' | 'low' | 'balanced' | 'high')
     : 'auto';
+  const gpuExecutionEnabled = runtime.gpu_execution_enabled === true;
 
   return {
     profile: {
@@ -302,11 +317,15 @@ export function decodePerformanceCapabilities(value: unknown): PerformanceCapabi
       count: gpus.length,
       label: gpuName ?? (gpus.length > 0 ? `${gpus.length} 个 GPU` : '未检测到'),
       cupyStatus: capabilityStatus(cupy.status),
-      executionEnabled: runtime.gpu_execution_enabled === true,
+      executionEnabled: gpuExecutionEnabled,
       executionReason:
         typeof runtime.gpu_execution_reason === 'string'
           ? runtime.gpu_execution_reason
           : 'unknown',
+      effectiveBackend:
+        runtime.gpu_effective_backend === 'cupy' && gpuExecutionEnabled ? 'cupy' : 'cpu',
+      gateStatus: gpuGateStatus(runtime.gpu_gate_status, gpuExecutionEnabled),
+      benchmarkSpeedup: nullableNumber(runtime.gpu_benchmark_speedup),
     },
     queue: {
       status: capabilityStatus(queue.status),

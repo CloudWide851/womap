@@ -61,6 +61,10 @@ class RasterPhaseTimingsDetail(BaseModel):
     combined_phases: list[
         Literal["read_warp", "compute", "write_compress", "overview"]
     ] = Field(default_factory=list, max_length=4)
+    backend_init: int | None = Field(default=None, ge=0)
+    host_to_device: int | None = Field(default=None, ge=0)
+    device_compute: int | None = Field(default=None, ge=0)
+    device_to_host: int | None = Field(default=None, ge=0)
 
 
 class RasterSpaceEstimateDetail(BaseModel):
@@ -72,6 +76,17 @@ class RasterSpaceEstimateDetail(BaseModel):
     scratch_required: int = Field(default=0, ge=0)
     store_required: int = Field(default=0, ge=0)
     reserve: int = Field(default=0, ge=0)
+
+
+class RasterFormulaBackendDetail(BaseModel):
+    requested_backend: Literal["cpu", "auto", "cupy"]
+    effective_backend: Literal["cpu", "cupy"]
+    gate_status: Literal[
+        "disabled", "unavailable", "missing", "rejected", "passed", "fallback"
+    ]
+    fallback_reason: str | None = Field(default=None, max_length=64)
+    fallback_attempt_ms: int | None = Field(default=None, ge=0)
+    max_batch_windows: int = Field(default=1, ge=1, le=64)
 
 
 class RasterJobProgressDetail(BaseModel):
@@ -88,6 +103,7 @@ class RasterJobProgressDetail(BaseModel):
     total_blocks: int = 0
     phase_timings_ms: RasterPhaseTimingsDetail | None = None
     space_estimate_bytes: RasterSpaceEstimateDetail | None = None
+    formula_backend: RasterFormulaBackendDetail | None = None
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 

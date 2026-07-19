@@ -66,6 +66,18 @@ function memoryLabel(bytes: number | null | undefined) {
   return bytes == null ? '未知' : `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
 
+function nativeComputeLabel(gpu?: PerformanceCapabilitySummary['gpu']) {
+  if (!gpu) return '检查中';
+  if (gpu.gateStatus === 'passed' && gpu.effectiveBackend === 'cupy') return 'GPU 已启用';
+  if (gpu.gateStatus === 'fallback') return 'GPU 失败后 CPU 回退';
+  if (gpu.gateStatus === 'rejected') return '基准未通过';
+  if (gpu.gateStatus === 'missing') return '本机基准缺失';
+  if (gpu.gateStatus === 'unavailable') {
+    return gpu.cupyStatus === 'unavailable' ? 'CuPy 未安装' : 'GPU 环境不可用';
+  }
+  return 'CPU 配置';
+}
+
 export function PerformancePanel() {
   const layers = useWorkspaceStore((state) => state.layers);
   const selectedLayerId = useWorkspaceStore((state) => state.selectedLayerId);
@@ -143,13 +155,7 @@ export function PerformancePanel() {
         <div>
           <Gauge size={14} aria-hidden="true" />
           <span>原生计算</span>
-          <strong>
-            {capabilities?.gpu.executionEnabled
-              ? 'GPU 已启用'
-              : capabilities?.gpu.count
-                ? 'GPU 待基准 / CPU 生效'
-                : 'CPU 生效'}
-          </strong>
+          <strong>{nativeComputeLabel(capabilities?.gpu)}</strong>
         </div>
         <div>
           <DatabaseZap size={14} aria-hidden="true" />

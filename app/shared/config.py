@@ -380,6 +380,7 @@ class ResolvedPerformanceSettings(BaseModel):
     cache_ttl_seconds: int
     cache_max_entry_kib: int
     gpu_requested_backend: Literal["cpu", "auto", "cupy"]
+    gpu_device_index: int
     gpu_memory_fraction: float
     gpu_minimum_speedup: float
 
@@ -500,6 +501,7 @@ class PerformanceSettings(BaseModel):
             cache_ttl_seconds=self.cache.ttl_seconds,
             cache_max_entry_kib=self.cache.max_entry_kib,
             gpu_requested_backend=self.gpu.backend,
+            gpu_device_index=self.gpu.device_index,
             gpu_memory_fraction=self.gpu.memory_fraction,
             gpu_minimum_speedup=self.gpu.minimum_speedup,
         )

@@ -3,11 +3,26 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
+
+from app.features.rasters.formula_backends import (
+    CupyFormulaBackend,
+    FormulaArrayBackend,
+    FormulaBackendTimings,
+    GpuBackendError,
+    NumpyFormulaBackend,
+    evaluate_formula_ast,
+)
+from app.features.rasters.gpu_gate import (
+    GpuExecutionDecision,
+    open_gpu_circuit,
+    resolve_gpu_execution,
+)
 from app.features.rasters.schemas import FormulaNode
 from app.features.rasters.storage import RasterSpaceEstimate, RasterStorage
 from app.shared.config import ResolvedPerformanceSettings
@@ -35,6 +50,10 @@ class RasterPhaseTimings:
     combined_io_ms: int | None
     total_ms: int
     combined_phases: tuple[str, ...] = ()
+    backend_init_ms: int | None = None
+    host_to_device_ms: int | None = None
+    device_compute_ms: int | None = None
+    device_to_host_ms: int | None = None
 
     def public_summary(self) -> dict[str, int | list[str] | None]:
         return {
@@ -47,6 +66,30 @@ class RasterPhaseTimings:
             "combined_io": self.combined_io_ms,
             "total": self.total_ms,
             "combined_phases": list(self.combined_phases),
+            "backend_init": self.backend_init_ms,
+            "host_to_device": self.host_to_device_ms,
+            "device_compute": self.device_compute_ms,
+            "device_to_host": self.device_to_host_ms,
+        }
+
+
+@dataclass(frozen=True)
+class FormulaExecutionSummary:
+    requested_backend: str
+    effective_backend: str
+    gate_status: str
+    fallback_reason: str | None = None
+    fallback_attempt_ms: int | None = None
+    max_batch_windows: int = 1
+
+    def public_summary(self) -> dict[str, str | int | None]:
+        return {
+            "requested_backend": self.requested_backend,
+            "effective_backend": self.effective_backend,
+            "gate_status": self.gate_status,
+            "fallback_reason": self.fallback_reason,
+            "fallback_attempt_ms": self.fallback_attempt_ms,
+            "max_batch_windows": self.max_batch_windows,
         }
 
 
@@ -57,6 +100,7 @@ class RasterProcessingResult:
     bounds: dict[str, float]
     phase_timings: RasterPhaseTimings
     space_estimate: RasterSpaceEstimate
+    formula_execution: FormulaExecutionSummary | None = None
 
 
 class RasterProcessor:
@@ -64,9 +108,14 @@ class RasterProcessor:
         self,
         storage: RasterStorage,
         performance: ResolvedPerformanceSettings | None = None,
+        *,
+        gpu_decision: GpuExecutionDecision | None = None,
+        formula_backend: FormulaArrayBackend | None = None,
     ) -> None:
         self.storage = storage
         self.performance = performance or resolve_runtime_performance()
+        self.gpu_decision = gpu_decision
+        self.formula_backend = formula_backend
 
     def _gdal_env(self) -> dict[str, int | str]:
         return {
@@ -167,13 +216,82 @@ class RasterProcessor:
         formula: FormulaNode,
         progress: ProgressCallback | None = None,
     ) -> RasterProcessingResult:
-        import numpy as np
+        total_started = time.perf_counter()
+        self.validate_formula(formula)
+        source_path = self.storage.assert_managed(source_path)
+        decision = self.gpu_decision or resolve_gpu_execution(self.performance)
+        backend = self.formula_backend
+        if backend is None:
+            if decision.effective_backend == "cupy":
+                backend = CupyFormulaBackend(
+                    device_index=self.performance.gpu_device_index,
+                    memory_fraction=self.performance.gpu_memory_fraction,
+                )
+            else:
+                backend = NumpyFormulaBackend()
+
+        try:
+            result = self._materialize_formula_once(
+                source_path,
+                destination_id,
+                fingerprint,
+                formula,
+                backend,
+                decision,
+                progress,
+            )
+        except GpuBackendError as exc:
+            if backend.name != "cupy":
+                raise
+            fallback_attempt_ms = _milliseconds(total_started)
+            backend.release()
+            open_gpu_circuit(exc.reason)
+            result = self._materialize_formula_once(
+                source_path,
+                destination_id,
+                fingerprint,
+                formula,
+                NumpyFormulaBackend(),
+                GpuExecutionDecision(
+                    requested_backend=decision.requested_backend,
+                    effective_backend="cpu",
+                    gate_status="fallback",
+                    reason=exc.reason,
+                    benchmark_speedup=decision.benchmark_speedup,
+                    runtime_info=decision.runtime_info,
+                ),
+                progress,
+                fallback_reason=exc.reason,
+                fallback_attempt_ms=fallback_attempt_ms,
+            )
+        finally:
+            backend.release()
+
+        return replace(
+            result,
+            phase_timings=replace(
+                result.phase_timings,
+                total_ms=_milliseconds(total_started),
+            ),
+        )
+
+    def _materialize_formula_once(
+        self,
+        source_path: Path,
+        destination_id: str,
+        fingerprint: str,
+        formula: FormulaNode,
+        backend: FormulaArrayBackend,
+        decision: GpuExecutionDecision,
+        progress: ProgressCallback | None,
+        *,
+        fallback_reason: str | None = None,
+        fallback_attempt_ms: int | None = None,
+    ) -> RasterProcessingResult:
         import rasterio
         from rasterio.shutil import copy as rio_copy
 
         total_started = time.perf_counter()
-        self.validate_formula(formula)
-        source_path = self.storage.assert_managed(source_path)
         preflight_started = time.perf_counter()
         estimate = self.storage.preflight(
             source_path.stat().st_size,
@@ -185,13 +303,16 @@ class RasterProcessor:
         cog_temp = self.storage.scratch / f"formula-cog-{uuid4().hex}.tif"
         final_path = self.storage.root / f"{destination_id}-{fingerprint[:16]}.tif"
         bands = sorted(self.formula_bands(formula))
+        read_bands = bands or [1]
         read_ms = 0
         compute_ms = 0
         write_ms = 0
+        backend_timings = FormulaBackendTimings()
+        max_batch_windows = 1
         try:
             with rasterio.Env(**self._gdal_env()):
                 with rasterio.open(source_path) as source:
-                    if max(bands) > source.count:
+                    if bands and max(bands) > source.count:
                         raise ValueError("公式引用的波段超出当前栅格范围。")
                     profile = source.profile.copy()
                     profile.update(
@@ -209,43 +330,66 @@ class RasterProcessor:
                     window_width, window_height, total_windows = self._formula_window_plan(
                         source.width,
                         source.height,
-                        len(bands),
+                        len(read_bands),
+                    )
+                    max_batch_windows = backend.batch_capacity(
+                        window_width=window_width,
+                        window_height=window_height,
+                        band_count=len(read_bands),
+                        host_budget_bytes=self.performance.formula_window_budget_mib
+                        * 1024**2,
                     )
                     with rasterio.open(intermediate, "w", **profile) as target:
-                        for block_index, window in enumerate(
-                            self._iter_windows(
-                                source.width,
-                                source.height,
-                                window_width,
-                                window_height,
-                            ),
-                            start=1,
+                        pending: list[tuple[Any, np.ndarray, np.ndarray]] = []
+                        completed_windows = 0
+
+                        def flush_pending() -> None:
+                            nonlocal completed_windows, compute_ms, write_ms
+                            if not pending:
+                                return
+                            batch_data = np.stack([item[1] for item in pending])
+                            batch_masks = np.stack([item[2] for item in pending])
+                            phase_started = time.perf_counter()
+                            batch_result = backend.evaluate_batch(
+                                formula,
+                                batch_data,
+                                batch_masks,
+                                read_bands,
+                            )
+                            compute_ms += _milliseconds(phase_started)
+                            backend_timings.add(batch_result.timings)
+                            phase_started = time.perf_counter()
+                            for index, (window, _, _) in enumerate(pending):
+                                target.write(batch_result.output[index], 1, window=window)
+                            write_ms += _milliseconds(phase_started)
+                            completed_windows += len(pending)
+                            if progress:
+                                progress("processing", completed_windows, total_windows)
+                            pending.clear()
+
+                        pending_shape: tuple[int, ...] | None = None
+                        for window in self._iter_windows(
+                            source.width,
+                            source.height,
+                            window_width,
+                            window_height,
                         ):
                             phase_started = time.perf_counter()
-                            arrays = source.read(bands, window=window, masked=True).astype(
-                                "float32"
-                            )
+                            arrays = source.read(
+                                read_bands,
+                                window=window,
+                                masked=True,
+                            ).astype("float32")
                             read_ms += _milliseconds(phase_started)
-                            phase_started = time.perf_counter()
-                            band_values = {
-                                band: arrays[index] for index, band in enumerate(bands)
-                            }
-                            with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-                                value = self.evaluate_formula(formula, band_values)
-                            mask = (
-                                np.ma.getmaskarray(value)
-                                if np.ma.isMaskedArray(value)
-                                else False
-                            )
-                            value_array = np.asarray(value, dtype="float32")
-                            invalid = ~np.isfinite(value_array) | mask
-                            output = np.where(invalid, -9999.0, value_array)
-                            compute_ms += _milliseconds(phase_started)
-                            phase_started = time.perf_counter()
-                            target.write(output, 1, window=window)
-                            write_ms += _milliseconds(phase_started)
-                            if progress:
-                                progress("processing", block_index, total_windows)
+                            data = np.asarray(np.ma.getdata(arrays), dtype=np.float32)
+                            masks = np.asarray(np.ma.getmaskarray(arrays), dtype=np.bool_)
+                            if pending and data.shape != pending_shape:
+                                flush_pending()
+                            pending_shape = data.shape
+                            pending.append((window, data, masks))
+                            if len(pending) >= max_batch_windows:
+                                flush_pending()
+                        flush_pending()
                 fused_started = time.perf_counter()
                 rio_copy(
                     intermediate,
@@ -277,8 +421,20 @@ class RasterProcessor:
                     combined_io_ms=fused_ms,
                     total_ms=_milliseconds(total_started),
                     combined_phases=("write_compress", "overview"),
+                    backend_init_ms=backend_timings.backend_init_ms,
+                    host_to_device_ms=backend_timings.host_to_device_ms,
+                    device_compute_ms=backend_timings.device_compute_ms,
+                    device_to_host_ms=backend_timings.device_to_host_ms,
                 ),
                 space_estimate=estimate,
+                formula_execution=FormulaExecutionSummary(
+                    requested_backend=decision.requested_backend,
+                    effective_backend="cupy" if backend.name == "cupy" else "cpu",
+                    gate_status=decision.gate_status,
+                    fallback_reason=fallback_reason,
+                    fallback_attempt_ms=fallback_attempt_ms,
+                    max_batch_windows=max_batch_windows,
+                ),
             )
         finally:
             intermediate.unlink(missing_ok=True)
@@ -401,39 +557,7 @@ class RasterProcessor:
 
     @classmethod
     def evaluate_formula(cls, node: FormulaNode, bands: dict[int, object]):
-        import numpy as np
-
-        if node.kind == "band":
-            return bands[int(node.band or 0)]
-        if node.kind == "number":
-            return float(node.value or 0)
-        if node.kind == "unary":
-            value = cls.evaluate_formula(node.argument, bands)  # type: ignore[arg-type]
-            return value if node.operator == "+" else -value
-        if node.kind == "binary":
-            left = cls.evaluate_formula(node.left, bands)  # type: ignore[arg-type]
-            right = cls.evaluate_formula(node.right, bands)  # type: ignore[arg-type]
-            return {
-                "+": lambda: left + right,
-                "-": lambda: left - right,
-                "*": lambda: left * right,
-                "/": lambda: left / right,
-                "^": lambda: np.power(left, right),
-            }[str(node.operator)]()
-        values = [cls.evaluate_formula(argument, bands) for argument in node.arguments]
-        if node.name == "abs":
-            return np.abs(values[0])
-        if node.name == "sqrt":
-            return np.sqrt(values[0])
-        if node.name == "log":
-            return np.log(values[0])
-        if node.name == "min":
-            return np.minimum(values[0], values[1])
-        if node.name == "max":
-            return np.maximum(values[0], values[1])
-        if node.name == "clamp":
-            return np.clip(values[0], values[1], values[2])
-        raise ValueError("不支持的公式函数。")
+        return evaluate_formula_ast(node, bands, np)
 
     @staticmethod
     def _physical_source_path(uri: str) -> Path:

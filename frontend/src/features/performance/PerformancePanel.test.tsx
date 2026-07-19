@@ -50,6 +50,9 @@ beforeEach(() => {
       cupyStatus: 'unavailable',
       executionEnabled: false,
       executionReason: 'cupy_runtime_unavailable',
+      effectiveBackend: 'cpu',
+      gateStatus: 'unavailable',
+      benchmarkSpeedup: null,
     },
     queue: { status: 'available', queued: 0, running: 0 },
     warning: null,
@@ -75,8 +78,29 @@ describe('PerformancePanel', () => {
     expect(await screen.findByText('均衡')).toBeInTheDocument();
     expect(screen.getByText('WebGL 2')).toBeInTheDocument();
     expect(screen.getByText('隐私限制')).toBeInTheDocument();
-    expect(screen.getByText('GPU 待基准 / CPU 生效')).toBeInTheDocument();
+    expect(screen.getByText('CuPy 未安装')).toBeInTheDocument();
     expect(screen.getByText('4 线程 / 512 MiB')).toBeInTheDocument();
     expect(getPerformanceCapabilities).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not describe a device or driver failure as a missing CuPy install', async () => {
+    vi.mocked(getPerformanceCapabilities).mockResolvedValue({
+      ...(await vi.mocked(getPerformanceCapabilities)()),
+      gpu: {
+        count: 1,
+        label: 'Example GPU',
+        cupyStatus: 'available',
+        executionEnabled: false,
+        executionReason: 'gpu_runtime_error',
+        effectiveBackend: 'cpu',
+        gateStatus: 'unavailable',
+        benchmarkSpeedup: null,
+      },
+    });
+
+    render(<PerformancePanel />);
+
+    expect(await screen.findByText('GPU 环境不可用')).toBeInTheDocument();
+    expect(screen.queryByText('CuPy 未安装')).not.toBeInTheDocument();
   });
 });

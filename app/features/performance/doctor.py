@@ -34,7 +34,8 @@ async def _report(as_json: bool) -> int:
         print("  GPU: not detected")
     print(
         f"  Web render: browser WebGL probe; native compute: "
-        f"disabled ({report.runtime.gpu_execution_reason})"
+        f"{report.runtime.gpu_effective_backend} / {report.runtime.gpu_gate_status} "
+        f"({report.runtime.gpu_execution_reason})"
     )
     print(
         f"  GDAL threads/cache: {profile.gdal_threads} / {profile.gdal_cache_mib} MiB "

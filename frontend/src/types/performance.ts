@@ -1,4 +1,11 @@
 export type CapabilityStatus = 'available' | 'unavailable' | 'restricted' | 'unknown';
+export type GpuGateStatus =
+  | 'disabled'
+  | 'unavailable'
+  | 'missing'
+  | 'rejected'
+  | 'passed'
+  | 'fallback';
 
 export interface PerformanceCapabilitySummary {
   profile: {
@@ -36,6 +43,9 @@ export interface PerformanceCapabilitySummary {
     cupyStatus: CapabilityStatus;
     executionEnabled: boolean;
     executionReason: string;
+    effectiveBackend: 'cpu' | 'cupy';
+    gateStatus: GpuGateStatus;
+    benchmarkSpeedup: number | null;
   };
   queue: {
     status: CapabilityStatus;

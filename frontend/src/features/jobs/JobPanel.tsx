@@ -45,6 +45,10 @@ interface JobItemProps {
 const JobItem = memo(function JobItem({ job }: JobItemProps) {
   const StatusIcon = statusIcons[job.status];
   const openAnalysis = useSpatialAnalysisStore((state) => state.openHistory);
+  const formulaBackend =
+    job.detail.kind === 'raster-process' && job.detail.operation === 'derive'
+      ? job.detail.formula_backend
+      : null;
   const downloadRaster = async () => {
     const result = await downloadRasterExport(job.id);
     const url = URL.createObjectURL(result.blob);
@@ -98,6 +102,16 @@ const JobItem = memo(function JobItem({ job }: JobItemProps) {
         aria-label={`${job.job_type} 进度 ${job.progress}%`}
       />
       <p>{job.message}</p>
+      {formulaBackend && (
+        <p className="job-backend">
+          公式计算 ·{' '}
+          {formulaBackend.gate_status === 'fallback'
+            ? 'GPU 失败后 CPU 回退'
+            : formulaBackend.effective_backend === 'cupy'
+              ? 'CuPy GPU'
+              : 'CPU'}
+        </p>
+      )}
       {job.job_type === 'raster-export' && job.status === 'done' && (
         <Button
           size="small"

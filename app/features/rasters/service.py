@@ -264,11 +264,25 @@ class RasterService:
         detail.layer_id = summary.id
         detail.phase_timings_ms = result.phase_timings.public_summary()
         detail.space_estimate_bytes = result.space_estimate.public_summary()
+        detail.formula_backend = (
+            result.formula_execution.public_summary()
+            if result.formula_execution is not None
+            else None
+        )
+        if result.formula_execution is not None:
+            if result.formula_execution.effective_backend == "cupy":
+                completion_message = "派生栅格已通过 CuPy GPU 生成。"
+            elif result.formula_execution.gate_status == "fallback":
+                completion_message = "派生栅格已生成；GPU 失败后已完整回退 CPU。"
+            else:
+                completion_message = "派生栅格已通过 CPU 生成。"
+        else:
+            completion_message = "派生栅格已生成。"
         await self.repository.update_job(
             job,
             status="done",
             progress=100,
-            message="派生栅格已生成。",
+            message=completion_message,
             detail=detail,
             extra_result={"layer_id": summary.id},
         )

@@ -18,6 +18,7 @@ from app.features.performance.schemas import (
     SystemCapability,
 )
 from app.features.performance.service import PerformanceService
+from app.features.rasters.gpu_gate import GpuExecutionDecision
 from app.main import create_app
 from app.shared.config import PerformanceSettings, Settings
 from conftest import allow_test_auth
@@ -197,11 +198,20 @@ async def test_capability_service_keeps_gpu_execution_behind_benchmark_gate() ->
     response = await PerformanceService(
         detector=FakeDetector(),
         settings=settings,
+        gpu_resolver=lambda _profile: GpuExecutionDecision(
+            requested_backend="auto",
+            effective_backend="cpu",
+            gate_status="missing",
+            reason="local_gpu_benchmark_missing",
+        ),
     ).get_capabilities()
 
     assert response.runtime.profile.resolved_profile == "high"
     assert response.runtime.gpu_execution_enabled is False
-    assert response.runtime.gpu_execution_reason == "local_correctness_and_speedup_gate_pending"
+    assert response.runtime.gpu_execution_reason == "local_gpu_benchmark_missing"
+    assert response.runtime.gpu_effective_backend == "cpu"
+    assert response.runtime.gpu_gate_status == "missing"
+    assert response.runtime.gpu_benchmark_speedup is None
     assert response.software.postgresql.status == "unknown"
     assert response.queue.status == "unknown"
     assert "password" not in response.model_dump_json().casefold()
@@ -223,7 +233,12 @@ def test_performance_capability_route_is_authenticated_and_redacted() -> None:
     assert body["schema_version"] == "womap.performance-capabilities/v1"
     assert body["runtime"]["profile"]["enforcement"] == "active"
     assert body["runtime"]["gpu_execution_enabled"] is False
+    assert body["runtime"]["gpu_effective_backend"] == "cpu"
+    assert body["runtime"]["gpu_gate_status"] == "disabled"
+    assert body["runtime"]["gpu_benchmark_speedup"] is None
     assert "local_config_path" not in response.text
+    assert "gpu_fingerprint" not in response.text
+    assert "gpu-gates" not in response.text
     assert "password" not in response.text.casefold()
 
 

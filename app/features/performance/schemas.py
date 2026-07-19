@@ -70,6 +70,11 @@ class RuntimeCapability(BaseModel):
     profile: ResolvedPerformanceSettings
     gpu_execution_enabled: bool = False
     gpu_execution_reason: str
+    gpu_effective_backend: Literal["cpu", "cupy"] = "cpu"
+    gpu_gate_status: Literal[
+        "disabled", "unavailable", "missing", "rejected", "passed", "fallback"
+    ] = "disabled"
+    gpu_benchmark_speedup: float | None = Field(default=None, ge=0)
 
 
 class PerformanceRecommendation(BaseModel):

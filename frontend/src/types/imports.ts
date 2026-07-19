@@ -160,6 +160,10 @@ export interface RasterJobProgressDetail {
     combined_io: number | null;
     total: number;
     combined_phases: Array<'read_warp' | 'compute' | 'write_compress' | 'overview'>;
+    backend_init?: number | null;
+    host_to_device?: number | null;
+    device_compute?: number | null;
+    device_to_host?: number | null;
   } | null;
   space_estimate_bytes?: {
     source: number;
@@ -170,6 +174,14 @@ export interface RasterJobProgressDetail {
     scratch_required: number;
     store_required: number;
     reserve: number;
+  } | null;
+  formula_backend?: {
+    requested_backend: 'cpu' | 'auto' | 'cupy';
+    effective_backend: 'cpu' | 'cupy';
+    gate_status: 'disabled' | 'unavailable' | 'missing' | 'rejected' | 'passed' | 'fallback';
+    fallback_reason: string | null;
+    fallback_attempt_ms: number | null;
+    max_batch_windows: number;
   } | null;
   warnings: string[];
   error: string | null;
