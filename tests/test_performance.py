@@ -13,6 +13,7 @@ from app.features.performance.schemas import (
     CpuCapability,
     GpuCapability,
     MemoryCapability,
+    PowerCapability,
     SoftwareCapability,
     StorageCapability,
     SystemCapability,
@@ -130,6 +131,8 @@ def test_windows_detector_uses_allowlisted_fields_and_redacts_extra_values(tmp_p
             )
         if "nvidia-smi" in command:
             return "NVIDIA Example GPU, 556.2, 12288, 8.6"
+        if "powercfg.exe" in command:
+            return "Power Scheme GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
         return None
 
     detector = CapabilityDetector(command_runner=runner, platform_name="win32")
@@ -142,12 +145,30 @@ def test_windows_detector_uses_allowlisted_fields_and_redacts_extra_values(tmp_p
     assert system.platform == "windows"
     assert system.cpu.physical_cores == 8
     assert system.memory.total_bytes == 32 * GIB
+    assert system.power.status == "available"
+    assert system.power.mode == "performance"
     assert gpus[0].vendor == "nvidia"
     assert gpus[0].memory_mib == 12288
     assert gpus[0].compute_capability == "8.6"
     assert "private-serial" not in serialized
     assert "private-device-id" not in serialized
     assert private_path not in serialized
+    assert "8c5e7fda" not in serialized
+
+
+def test_linux_power_profile_is_mapped_without_exposing_command_output(tmp_path: Path) -> None:
+    detector = CapabilityDetector(
+        command_runner=lambda arguments, _timeout: (
+            "power-saver\n" if list(arguments) == ["powerprofilesctl", "get"] else None
+        ),
+        platform_name="linux",
+    )
+
+    power = detector.detect_system(tmp_path).power
+
+    assert power.status == "available"
+    assert power.mode == "power_saver"
+    assert power.model_dump() == {"status": "available", "mode": "power_saver"}
 
 
 def test_detector_command_failure_and_timeout_degrade_without_exception(tmp_path: Path) -> None:
@@ -172,6 +193,7 @@ class FakeDetector(CapabilityDetector):
             cpu=CpuCapability(logical_cores=16, physical_cores=8, model="Example CPU"),
             memory=MemoryCapability(total_bytes=32 * GIB, available_bytes=20 * GIB),
             storage=StorageCapability(status="available", free_bytes=100 * GIB),
+            power=PowerCapability(status="available", mode="performance"),
         )
 
     def detect_gpus(self) -> list[GpuCapability]:
@@ -214,7 +236,25 @@ async def test_capability_service_keeps_gpu_execution_behind_benchmark_gate() ->
     assert response.runtime.gpu_benchmark_speedup is None
     assert response.software.postgresql.status == "unknown"
     assert response.queue.status == "unknown"
+    assert response.system.power.mode == "performance"
     assert "password" not in response.model_dump_json().casefold()
+
+
+def test_power_saver_recommendation_has_evidence_effect_and_restore_steps() -> None:
+    recommendations = PerformanceService._recommendations(
+        20 * GIB,
+        "power_saver",
+        False,
+        SoftwareCapability(status="unavailable"),
+        SoftwareCapability(status="available"),
+    )
+
+    recommendation = next(item for item in recommendations if item.code == "power_saver_limits_throughput")
+    assert recommendation.severity == "warning"
+    assert recommendation.evidence
+    assert recommendation.expected_effect
+    assert recommendation.action
+    assert recommendation.restore_action
 
 
 def test_performance_capability_route_is_authenticated_and_redacted() -> None:

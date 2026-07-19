@@ -1,5 +1,6 @@
 import { Tooltip } from 'antd';
 import {
+  BatteryCharging,
   Cpu,
   DatabaseZap,
   Gauge,
@@ -76,6 +77,14 @@ function nativeComputeLabel(gpu?: PerformanceCapabilitySummary['gpu']) {
     return gpu.cupyStatus === 'unavailable' ? 'CuPy 未安装' : 'GPU 环境不可用';
   }
   return 'CPU 配置';
+}
+
+function powerLabel(power?: PerformanceCapabilitySummary['power']) {
+  if (!power || power.status !== 'available') return '未获取';
+  if (power.mode === 'performance') return '高性能';
+  if (power.mode === 'balanced') return '均衡';
+  if (power.mode === 'power_saver') return '节能';
+  return '未知';
 }
 
 export function PerformancePanel() {
@@ -166,7 +175,48 @@ export function PerformancePanel() {
               : '检查中'}
           </strong>
         </div>
+        <div>
+          <BatteryCharging size={14} aria-hidden="true" />
+          <span>系统电源</span>
+          <strong>{powerLabel(capabilities?.power)}</strong>
+        </div>
       </div>
+      {capabilities && capabilities.recommendations.length > 0 ? (
+        <div className="performance-recommendations" aria-label="系统性能建议">
+          {capabilities.recommendations.map((recommendation) => (
+            <details key={recommendation.code} open={recommendation.severity === 'warning'}>
+              <summary>
+                {recommendation.severity === 'warning' ? (
+                  <TriangleAlert size={13} aria-hidden="true" />
+                ) : (
+                  <ShieldCheck size={13} aria-hidden="true" />
+                )}
+                <span>{recommendation.action}</span>
+              </summary>
+              <dl>
+                <div>
+                  <dt>依据</dt>
+                  <dd>{recommendation.evidence}</dd>
+                </div>
+                <div>
+                  <dt>影响</dt>
+                  <dd>{recommendation.expectedEffect}</dd>
+                </div>
+                <div>
+                  <dt>权限</dt>
+                  <dd>{recommendation.adminRequired ? '需要管理员权限' : '无需管理员权限'}</dd>
+                </div>
+                {recommendation.restoreAction ? (
+                  <div>
+                    <dt>恢复</dt>
+                    <dd>{recommendation.restoreAction}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </details>
+          ))}
+        </div>
+      ) : null}
       <div
         className={`performance-hint ${layer?.performance.warning || capabilityWarning ? 'is-warning' : 'is-ok'}`}
         role="status"

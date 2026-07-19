@@ -256,19 +256,39 @@ function gpuGateStatus(value: unknown, executionEnabled: boolean): GpuGateStatus
       : 'disabled';
 }
 
+function boundedText(value: unknown, fallback = '', limit = 320) {
+  if (typeof value !== 'string') return fallback;
+  return value.replace(/\s+/g, ' ').trim().slice(0, limit) || fallback;
+}
+
 export function decodePerformanceCapabilities(value: unknown): PerformanceCapabilitySummary {
   const root = recordValue(value);
   const system = recordValue(root.system);
   const cpu = recordValue(system.cpu);
   const memory = recordValue(system.memory);
+  const power = recordValue(system.power);
   const runtime = recordValue(root.runtime);
   const profile = recordValue(runtime.profile);
   const software = recordValue(root.software);
   const cupy = recordValue(software.cupy);
   const queue = recordValue(root.queue);
-  const recommendations = Array.isArray(root.recommendations) ? root.recommendations : [];
-  const warning = recommendations
+  const recommendations = (Array.isArray(root.recommendations) ? root.recommendations : [])
+    .slice(0, 12)
     .map(recordValue)
+    .filter((item) => boundedText(item.code).length > 0 && boundedText(item.action).length > 0)
+    .map((item) => ({
+      code: boundedText(item.code, 'unknown', 64),
+      severity: item.severity === 'warning' ? ('warning' as const) : ('info' as const),
+      scope: ['process', 'user', 'system'].includes(String(item.scope))
+        ? (item.scope as 'process' | 'user' | 'system')
+        : ('process' as const),
+      adminRequired: item.admin_required === true,
+      evidence: boundedText(item.evidence),
+      expectedEffect: boundedText(item.expected_effect),
+      action: boundedText(item.action),
+      restoreAction: boundedText(item.restore_action) || null,
+    }));
+  const warning = recommendations
     .find((item) => item.severity === 'warning');
   const gpus = Array.isArray(root.gpus) ? root.gpus.map(recordValue) : [];
   const firstGpu = gpus[0];
@@ -313,6 +333,12 @@ export function decodePerformanceCapabilities(value: unknown): PerformanceCapabi
     cpuLogicalCores: Math.max(1, finiteNumber(cpu.logical_cores, 1)),
     totalMemoryBytes: nullableNumber(memory.total_bytes),
     availableMemoryBytes: nullableNumber(memory.available_bytes),
+    power: {
+      status: capabilityStatus(power.status),
+      mode: ['balanced', 'performance', 'power_saver'].includes(String(power.mode))
+        ? (power.mode as 'balanced' | 'performance' | 'power_saver')
+        : 'unknown',
+    },
     gpu: {
       count: gpus.length,
       label: gpuName ?? (gpus.length > 0 ? `${gpus.length} 个 GPU` : '未检测到'),
@@ -332,7 +358,8 @@ export function decodePerformanceCapabilities(value: unknown): PerformanceCapabi
       queued: nullableNumber(queue.queued),
       running: nullableNumber(queue.running),
     },
-    warning: warning && typeof warning.action === 'string' ? warning.action : null,
+    recommendations,
+    warning: warning?.action ?? null,
   };
 }
 

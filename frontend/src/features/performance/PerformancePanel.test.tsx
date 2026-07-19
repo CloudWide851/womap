@@ -44,6 +44,7 @@ beforeEach(() => {
     cpuLogicalCores: 12,
     totalMemoryBytes: 32 * 1024 ** 3,
     availableMemoryBytes: 18 * 1024 ** 3,
+    power: { status: 'available', mode: 'balanced' },
     gpu: {
       count: 1,
       label: 'Example GPU',
@@ -55,6 +56,18 @@ beforeEach(() => {
       benchmarkSpeedup: null,
     },
     queue: { status: 'available', queued: 0, running: 0 },
+    recommendations: [
+      {
+        code: 'bounded_system_advice',
+        severity: 'info',
+        scope: 'system',
+        adminRequired: true,
+        evidence: '当前值保持不变',
+        expectedEffect: '避免资源争用',
+        action: '查看系统建议',
+        restoreAction: '恢复原值',
+      },
+    ],
     warning: null,
   });
   vi.mocked(detectWebGLCapabilities).mockReturnValue({
@@ -75,11 +88,13 @@ describe('PerformancePanel', () => {
   it('loads diagnostics only when mounted and distinguishes render GPU from compute GPU', async () => {
     render(<PerformancePanel />);
 
-    expect(await screen.findByText('均衡')).toBeInTheDocument();
+    expect(await screen.findAllByText('均衡')).toHaveLength(2);
     expect(screen.getByText('WebGL 2')).toBeInTheDocument();
     expect(screen.getByText('隐私限制')).toBeInTheDocument();
     expect(screen.getByText('CuPy 未安装')).toBeInTheDocument();
     expect(screen.getByText('4 线程 / 512 MiB')).toBeInTheDocument();
+    expect(screen.getByText('系统电源')).toBeInTheDocument();
+    expect(screen.getByText('查看系统建议')).toBeInTheDocument();
     expect(getPerformanceCapabilities).toHaveBeenCalledTimes(1);
   });
 

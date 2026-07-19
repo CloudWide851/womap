@@ -11,6 +11,7 @@ const rawCapability = {
   system: {
     cpu: { logical_cores: 16 },
     memory: { total_bytes: 32 * 1024 ** 3, available_bytes: 20 * 1024 ** 3 },
+    power: { status: 'available', mode: 'performance' },
   },
   gpus: [{ name: 'Example GPU' }],
   software: { cupy: { status: 'unavailable' } },
@@ -44,7 +45,18 @@ const rawCapability = {
     },
   },
   queue: { status: 'available', queued: 1, running: 0 },
-  recommendations: [],
+  recommendations: [
+    {
+      code: 'system_advice',
+      severity: 'info',
+      scope: 'system',
+      admin_required: true,
+      evidence: '只读诊断结果',
+      expected_effect: '减少资源争用',
+      action: '按需调整',
+      restore_action: '恢复原设置',
+    },
+  ],
 };
 
 describe('performance capability API boundary', () => {
@@ -53,6 +65,7 @@ describe('performance capability API boundary', () => {
       profile: { requested: 'auto', resolved: 'high', gdalThreads: 8, gdalCacheMiB: 1024 },
       browser: { vectorLimit: 3000, bboxDebounceMs: 140, geotiffCacheSize: 64 },
       cpuLogicalCores: 16,
+      power: { status: 'available', mode: 'performance' },
       gpu: {
         count: 1,
         label: 'Example GPU',
@@ -62,7 +75,33 @@ describe('performance capability API boundary', () => {
         benchmarkSpeedup: null,
       },
       queue: { status: 'available', queued: 1, running: 0 },
+      recommendations: [
+        {
+          code: 'system_advice',
+          adminRequired: true,
+          evidence: '只读诊断结果',
+          expectedEffect: '减少资源争用',
+          action: '按需调整',
+          restoreAction: '恢复原设置',
+        },
+      ],
     });
+  });
+
+  it('fails closed for unknown power values and discards malformed advice', () => {
+    const malformed = structuredClone(rawCapability);
+    malformed.system.power = { status: 'available', mode: 'secret-guid' };
+    malformed.recommendations.push({
+      ...malformed.recommendations[0],
+      code: '',
+      action: '',
+    });
+
+    const decoded = decodePerformanceCapabilities(malformed);
+
+    expect(decoded.power).toEqual({ status: 'available', mode: 'unknown' });
+    expect(decoded.recommendations).toHaveLength(1);
+    expect(JSON.stringify(decoded)).not.toContain('secret-guid');
   });
 
   it('fails closed when an older response omits the incremental GPU gate fields', () => {

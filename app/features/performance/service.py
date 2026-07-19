@@ -91,6 +91,7 @@ class PerformanceService:
             queue=queue,
             recommendations=self._recommendations(
                 system.memory.available_bytes,
+                system.power.mode,
                 bool(gpus),
                 local_software["cupy"],
                 redis,
@@ -214,6 +215,7 @@ class PerformanceService:
     @staticmethod
     def _recommendations(
         available_memory: int | None,
+        power_mode: str,
         has_gpu: bool,
         cupy: SoftwareCapability,
         redis: SoftwareCapability,
@@ -228,6 +230,18 @@ class PerformanceService:
                 action="仅在后续诊断明确给出影响和恢复步骤后，由用户显式执行系统级调整。",
             )
         ]
+        if power_mode == "power_saver":
+            recommendations.append(
+                PerformanceRecommendation(
+                    code="power_saver_limits_throughput",
+                    severity="warning",
+                    scope="user",
+                    evidence="当前系统处于节能模式，持续 GIS 重任务可能受到 CPU 频率限制。",
+                    expected_effect="切换到均衡或高性能模式可减少长任务吞吐波动。",
+                    action="仅在接通电源且需要运行大型任务时，由用户在系统电源设置中切换模式。",
+                    restore_action="任务结束后在同一系统电源设置中恢复原节能模式。",
+                )
+            )
         if available_memory is not None and available_memory < 4 * 1024**3:
             recommendations.append(
                 PerformanceRecommendation(

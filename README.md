@@ -29,6 +29,39 @@ Windows 下优先使用根目录启动器：
 .\start-womap.bat test
 ```
 
+Linux 使用等价的原生启动器。生产 `run` 会构建前端、执行迁移并分别启动无 reload 的 API 与持久 Worker；`stop` 先让 Worker 协作退出，再停止 API：
+
+```bash
+chmod +x ./start-womap.sh
+./start-womap.sh setup
+./start-womap.sh run
+./start-womap.sh status
+./start-womap.sh doctor
+./start-womap.sh stop
+```
+
+仅运行独立 Worker 使用 `./start-womap.sh worker`，停机升级使用 `./start-womap.sh upgrade`。启动器只终止 PID、Linux 启动时间和命令身份均与记录一致的进程；状态和日志保存在忽略提交的 `.womap-data/runtime/linux` 与 `.womap-data/logs/linux`。
+
+Ubuntu 24.04 LTS/systemd 可将示例复制为正式单元，并把用户、工作目录、端口和 `uv` 路径改为本机值：
+
+```bash
+sudo install -m 0644 deploy/systemd/womap-api.service.example /etc/systemd/system/womap-api.service
+sudo install -m 0644 deploy/systemd/womap-worker.service.example /etc/systemd/system/womap-worker.service
+sudo systemd-analyze verify /etc/systemd/system/womap-api.service /etc/systemd/system/womap-worker.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now womap-api.service womap-worker.service
+systemctl status womap-api.service womap-worker.service
+```
+
+Worker 示例使用 `Nice=10`、较低 CPU/IO 权重、`MemoryHigh=50%`、`TasksMax=512` 和 `LimitNOFILE=8192`，不会修改整机 sysctl 或 I/O 调度器。恢复为非服务模式：
+
+```bash
+sudo systemctl disable --now womap-worker.service womap-api.service
+sudo rm /etc/systemd/system/womap-worker.service /etc/systemd/system/womap-api.service
+sudo systemctl daemon-reload
+./start-womap.sh run
+```
+
 也可以手动启动后端和前端：
 
 ```powershell
@@ -175,7 +208,34 @@ uv sync --frozen
 .\start-womap.bat run
 ```
 
-Linux 使用相同的 `uv sync --extra gpu` 与基准命令，并通过阶段 2 的 API/Worker systemd 单元重启；Linux 实机总验收属于阶段 5。
+Linux 使用相同的 `uv sync --extra gpu` 与基准命令，并通过独立 API/Worker systemd 单元重启。GPU 门槛仍按机器指纹 fail-closed，不能把 Windows 或 WSL2 报告复制给另一台 Linux 主机。
+
+## 跨平台性能验收与系统建议
+
+阶段 5 验收固定比较基线提交 `fbcc598`。CI-small 只验证报告、路径约束和 fail-closed 机制，不能授予工作站发布通过：
+
+```powershell
+uv run python scripts/perf/generate_ci_data.py
+uv run python scripts/perf/run_stage5_acceptance.py --profile ci-small
+```
+
+workstation-medium 要求 `.womap-data/perf/datasets/workstation-medium/` 中存在 1,000,000 要素和精确 10,909,510,093 字节栅格，并且必须显式确认大型运行。脱敏证据文件使用 `womap.stage5-evidence/v1`，至少包含普通 API/bbox 延迟、真实浏览器 INP/FPS、两轮 Worker RSS/句柄平台期、心跳与租约、连接池预算、两个缩放级别的 COG Range/缓存复用、Windows/Linux 原生 smoke、系统状态未变化、固定基线可比性和精确清理结果；任一项缺失即拒绝。WSL2 可验证 Linux 兼容性，但证据必须标记 `linux_environment_kind: wsl2`，且不能代替 Ubuntu 裸机的 `native` 门槛：
+
+```powershell
+uv run python scripts/perf/run_stage5_acceptance.py `
+  --profile workstation-medium `
+  --baseline-ref fbcc598 `
+  --confirm-large `
+  --evidence .womap-data/perf/stage5/evidence-workstation-medium.json
+```
+
+所有原始数据、trace 和报告只写入忽略的 `.womap-data/perf/` 后代路径。报告不包含数据库 URL、Redis key、本地绝对路径、GPU 唯一标识、SQL 参数、属性或几何。缺少浏览器交互、重任务并发或资源平台期证据时必须明确保持“未验收”，不能用单元测试或单样本代替。
+
+WOMAP 的 `setup/run/doctor/upgrade/stop` 和性能 API 只读系统状态，不会自动修改电源计划、应用 GPU 首选项、Defender 排除、页面文件、注册表、Linux sysctl 或 I/O 调度器。性能面板仅在检测到明确条件时给出带依据、影响、权限和恢复步骤的建议。
+
+Windows 可逆建议：大型任务期间如系统正处于“节能”，可在“设置 → 系统 → 电源和电池 → 电源模式”手动切换为“均衡”或“最佳性能”，完成后在同一位置恢复原模式。应用 GPU 首选项只应通过“设置 → 系统 → 显示 → 图形”对 WOMAP/Python 进程显式配置，并用同一页面的“删除/让 Windows 决定”恢复。默认不建议添加 Defender 排除或手工固定页面文件；只有经过安全评估和可复现实测后才由管理员操作，恢复时删除对应排除并重新启用“自动管理分页文件大小”。
+
+Linux 可逆建议：大型任务期间如 `powerprofilesctl get` 显示 `power-saver`，可由用户显式执行 `powerprofilesctl set balanced` 或 `powerprofilesctl set performance`，并在任务后用 `powerprofilesctl set power-saver` 恢复。不要为 WOMAP 修改全局 `vm.swappiness`、dirty ratio 或块设备 scheduler；资源隔离由 systemd Worker 单元承担，回滚只需恢复或删除该单元并 `daemon-reload`。
 
 ## 空间分析
 

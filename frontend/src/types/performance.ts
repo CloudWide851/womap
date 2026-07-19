@@ -1,4 +1,5 @@
 export type CapabilityStatus = 'available' | 'unavailable' | 'restricted' | 'unknown';
+export type SystemPowerMode = 'balanced' | 'performance' | 'power_saver' | 'unknown';
 export type GpuGateStatus =
   | 'disabled'
   | 'unavailable'
@@ -37,6 +38,10 @@ export interface PerformanceCapabilitySummary {
   cpuLogicalCores: number;
   totalMemoryBytes: number | null;
   availableMemoryBytes: number | null;
+  power: {
+    status: CapabilityStatus;
+    mode: SystemPowerMode;
+  };
   gpu: {
     count: number;
     label: string;
@@ -52,7 +57,19 @@ export interface PerformanceCapabilitySummary {
     queued: number | null;
     running: number | null;
   };
+  recommendations: PerformanceRecommendationSummary[];
   warning: string | null;
+}
+
+export interface PerformanceRecommendationSummary {
+  code: string;
+  severity: 'info' | 'warning';
+  scope: 'process' | 'user' | 'system';
+  adminRequired: boolean;
+  evidence: string;
+  expectedEffect: string;
+  action: string;
+  restoreAction: string | null;
 }
 
 export interface BrowserWebGLCapability {

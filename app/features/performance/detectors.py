@@ -17,6 +17,7 @@ from app.features.performance.schemas import (
     CpuCapability,
     GpuCapability,
     MemoryCapability,
+    PowerCapability,
     SoftwareCapability,
     StorageCapability,
     SystemCapability,
@@ -37,6 +38,21 @@ _WINDOWS_GPU_COMMAND = (
     "Select-Object Name,DriverVersion,AdapterRAM | ConvertTo-Json -Compress"
 )
 _PATH_PATTERN = re.compile(r"(?:[A-Za-z]:\\|/(?:home|users?|var|tmp)/)", re.IGNORECASE)
+_POWER_GUID_PATTERN = re.compile(
+    r"\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b",
+    re.IGNORECASE,
+)
+_WINDOWS_POWER_MODES = {
+    "381b4222-f694-41f0-9685-ff5bb260df2e": "balanced",
+    "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c": "performance",
+    "e9a42b02-d5df-448d-aa00-03f14749eb61": "performance",
+    "a1841308-3541-4fab-bc81-f71556f20b4a": "power_saver",
+}
+_LINUX_POWER_MODES = {
+    "balanced": "balanced",
+    "performance": "performance",
+    "power-saver": "power_saver",
+}
 
 
 def _safe_text(value: object, *, limit: int = 160) -> str | None:
@@ -120,6 +136,7 @@ class CapabilityDetector:
                 available_bytes=available_memory,
             ),
             storage=self._storage(storage_path),
+            power=self._power(platform_kind),
         )
 
     def detect_gpus(self) -> list[GpuCapability]:
@@ -174,6 +191,25 @@ class CapabilityDetector:
         if self.platform_name.startswith("linux"):
             return "linux"
         return "other"
+
+    def _power(self, platform_kind: str) -> PowerCapability:
+        if platform_kind == "windows":
+            output = self.command_runner(["powercfg.exe", "/GETACTIVESCHEME"], 2.0)
+            match = _POWER_GUID_PATTERN.search(output or "")
+            if match is None:
+                return PowerCapability(status="unavailable")
+            return PowerCapability(
+                status="available",
+                mode=_WINDOWS_POWER_MODES.get(match.group(1).casefold(), "unknown"),
+            )
+        if platform_kind == "linux":
+            output = self.command_runner(["powerprofilesctl", "get"], 2.0)
+            normalized = (output or "").strip().casefold()
+            mode = _LINUX_POWER_MODES.get(normalized)
+            if mode is None:
+                return PowerCapability(status="unavailable")
+            return PowerCapability(status="available", mode=mode)
+        return PowerCapability(status="unknown")
 
     def _windows_host(self) -> dict[str, Any]:
         output = self.command_runner(

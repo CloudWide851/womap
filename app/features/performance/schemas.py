@@ -26,6 +26,11 @@ class StorageCapability(BaseModel):
     kind: Literal["ssd", "hdd", "network", "unknown"] = "unknown"
 
 
+class PowerCapability(BaseModel):
+    status: CapabilityStatus = "unknown"
+    mode: Literal["balanced", "performance", "power_saver", "unknown"] = "unknown"
+
+
 class SystemCapability(BaseModel):
     platform: Literal["windows", "linux", "other"]
     release: str
@@ -33,6 +38,7 @@ class SystemCapability(BaseModel):
     cpu: CpuCapability
     memory: MemoryCapability
     storage: StorageCapability
+    power: PowerCapability = Field(default_factory=PowerCapability)
 
 
 class GpuCapability(BaseModel):

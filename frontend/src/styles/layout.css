@@ -1438,6 +1438,55 @@
   font-weight: 680;
 }
 
+.performance-recommendations {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 8px;
+  contain: content;
+}
+
+.performance-recommendations details {
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font-size: 0.69rem;
+}
+
+.performance-recommendations summary {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  padding: 7px 8px;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.performance-recommendations dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0 8px 8px 28px;
+  color: var(--color-muted);
+}
+
+.performance-recommendations dl > div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 5px;
+}
+
+.performance-recommendations dt,
+.performance-recommendations dd {
+  margin: 0;
+}
+
+.performance-recommendations dt {
+  color: var(--color-ink);
+  font-weight: 680;
+}
+
 .performance-hint.is-ok {
   border-color: color-mix(in oklch, var(--color-success) 36%, var(--color-line));
   color: var(--color-success);

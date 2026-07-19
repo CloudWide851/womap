@@ -32,6 +32,7 @@ const capability: PerformanceCapabilitySummary = {
   cpuLogicalCores: 12,
   totalMemoryBytes: null,
   availableMemoryBytes: null,
+  power: { status: 'unknown', mode: 'unknown' },
   gpu: {
     count: 0,
     label: '未检测到',
@@ -43,6 +44,7 @@ const capability: PerformanceCapabilitySummary = {
     benchmarkSpeedup: null,
   },
   queue: { status: 'available', queued: 0, running: 0 },
+  recommendations: [],
   warning: null,
 };
 

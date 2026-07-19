@@ -32,6 +32,9 @@ def test_linux_worker_unit_has_lower_native_resource_priority() -> None:
     assert "Nice=10" in unit
     assert "CPUWeight=40" in unit
     assert "IOWeight=40" in unit
+    assert "MemoryHigh=50%" in unit
+    assert "TasksMax=512" in unit
+    assert "LimitNOFILE=8192" in unit
 
 
 def test_linux_units_do_not_change_global_operating_system_settings() -> None:

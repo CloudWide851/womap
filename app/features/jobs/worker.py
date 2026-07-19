@@ -49,7 +49,9 @@ def apply_process_priority(settings: PerformanceWorkerSettings) -> None:
         if not set_priority_class(process, below_normal_priority_class):
             raise OSError("unable to apply below-normal worker priority")
     elif system == "linux" and settings.linux_nice:
-        os.nice(settings.linux_nice)
+        current_nice = os.nice(0)
+        if current_nice < settings.linux_nice:
+            os.nice(settings.linux_nice - current_nice)
 
 
 def _write_ready_file(path: Path | None) -> None:

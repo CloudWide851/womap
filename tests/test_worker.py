@@ -401,3 +401,25 @@ def test_windows_worker_does_not_reapply_inherited_below_normal_priority(
     apply_process_priority(PerformanceWorkerSettings())
 
     kernel32.SetPriorityClass.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("current_nice", "expected_calls"),
+    [
+        (0, [(0,), (10,)]),
+        (10, [(0,)]),
+        (15, [(0,)]),
+    ],
+)
+def test_linux_worker_applies_configured_nice_as_a_target_without_double_nice(
+    monkeypatch: pytest.MonkeyPatch,
+    current_nice: int,
+    expected_calls: list[tuple[int]],
+) -> None:
+    nice = Mock(return_value=current_nice)
+    monkeypatch.setattr("app.features.jobs.worker.platform.system", lambda: "Linux")
+    monkeypatch.setattr("app.features.jobs.worker.os.nice", nice, raising=False)
+
+    apply_process_priority(PerformanceWorkerSettings(linux_nice=10))
+
+    assert [item.args for item in nice.call_args_list] == expected_calls
